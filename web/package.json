@@ -19,7 +19,9 @@
     "./csa": "./csa.js",
     "./position": "./position.js",
     "./shogi-board": "./shogi-board.js",
-    "./shogi-hand": "./shogi-hand.js"
+    "./shogi-hand": "./shogi-hand.js",
+    "./font": "./font.js",
+    "./font-gothic": "./font-gothic.js"
   },
   "files": [
     "index.js",
@@ -31,12 +33,15 @@
     "shogi-board.js",
     "shogi-hand.js",
     "font.js",
-    "index.d.ts"
+    "font-gothic.js",
+    "index.d.ts",
+    "OFL.txt"
   ],
   "sideEffects": [
     "./index.js",
     "./shogi-board.js",
-    "./shogi-hand.js"
+    "./shogi-hand.js",
+    "./font-gothic.js"
   ],
   "scripts": {
     "test": "node test.mjs"

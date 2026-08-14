@@ -326,6 +326,9 @@ go run . [-name FAMILY] {inputfont} [output.ttf]
   `fonttools varLib.instancer` で wght=400 を実体化してから渡す
 - 生成物は元フォントの copyright / trademark / license / licenseURL を**引き継ぐ**
   （`readSrcNames`）。派生物なので落とさない。焼き直しの手順は `web/README.md` を見ること
+- **OFL 1.1 の全文は `web/OFL.txt`**（埋め込んだフォントの由来と権利表記も先頭に記載）。
+  ⚠️ **配布物から外さないこと。** OFL がライセンス文の同梱を求めるので、
+  `web/package.json` の `files` と `web/assets.go` の `//go:embed` の両方に入れてある
 - 既定以外は `web/` で**使う画面だけが読み込むモジュール**に分けてある（`web/README.md`）
 
 ### 文字マッピング (cmap)

@@ -18,7 +18,8 @@ SFEN/USI の共通ロジックを提供する。**ビルド不要の素の ESM J
 | `kifu.js` | KIF 変換(`formatKifuLine`/`stripMoveModifiers`/`terminalMarker`・読売竜王戦 `buildYomiuriHirateKifu`)。Go 側の対応実装は `github.com/ShinteLab/core/kifu`(そちらがヘッダ付きドキュメント組み立ても持つ)。指し手行の書式は両者で揃えること |
 | `font.js` | 既定の駒フォント(Noto Serif JP ベース)を base64 data URL 化したもの(自動生成)と `ensureShogiFont()` |
 | `font-gothic.js` | 別の元フォントで焼いた駒フォント(Noto Sans JP)。**import した画面だけが読み込む**(下記) |
-| `gen-fonts.mjs` | 上 3 つの base64 を `core/*.ttf` から焼き直す生成器。`.mjs` なのは `assets.go` の `//go:embed *.js` に拾わせないため |
+| `gen-fonts.mjs` | 上の base64 を `core/*.ttf` から焼き直す生成器。`.mjs` なのは `assets.go` の `//go:embed *.js` に拾わせないため |
+| `OFL.txt` | 埋め込んだ駒フォントの由来・権利表記と **SIL OFL 1.1 の全文**。⚠️ 配布物から外さないこと |
 | `index.js` | 再エクスポート(これを import すれば `<shogi-board>` も登録される) |
 | `index.d.ts` | TypeScript 型定義(prokishi など TS 消費側向け) |
 | `assets.go` | `package web`。`//go:embed *.js` で JS 資産を `embed.FS`(`web.Assets`)として公開。Go サーバから配信するため |
@@ -242,7 +243,9 @@ SIL Open Font License, Version 1.1  —  http://scripts.sil.org/OFL
   OFL は派生物の作成・再配布を認めるが、**ライセンス文の同梱**と
   **Reserved Font Name を使わないこと**が条件。family を `ShogiSFEN*` にしてあるのは後者のため
   （Noto Sans JP は `Source` が Reserved Font Name）
-- ⚠️ **OFL 1.1 の全文をまだリポジトリに置いていない。** 公開前に入れること
+- **OFL 1.1 の全文は `web/OFL.txt`。** 埋め込んだフォントの由来と権利表記も先頭に書いてある。
+  ⚠️ **配布物から外さないこと**（OFL の条件）。`package.json` の `files` と
+  `assets.go` の `//go:embed` にも入れてあるので、npm 配布でも Go 配信でも一緒に付いて回る
 
 ## 今後
 
