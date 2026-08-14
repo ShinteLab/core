@@ -1,0 +1,44 @@
+{
+  "name": "@shinte/web",
+  "version": "0.1.0",
+  "description": "shinte 共有フロントエンド: 将棋盤表示 Web Component (<shogi-board>) と SFEN/USI 共通ロジック",
+  "type": "module",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "index.js",
+  "module": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./sfen": "./sfen.js",
+    "./usi": "./usi.js",
+    "./kifu": "./kifu.js",
+    "./csa": "./csa.js",
+    "./position": "./position.js",
+    "./shogi-board": "./shogi-board.js",
+    "./shogi-hand": "./shogi-hand.js"
+  },
+  "files": [
+    "index.js",
+    "sfen.js",
+    "usi.js",
+    "kifu.js",
+    "csa.js",
+    "position.js",
+    "shogi-board.js",
+    "shogi-hand.js",
+    "font.js",
+    "index.d.ts"
+  ],
+  "sideEffects": [
+    "./index.js",
+    "./shogi-board.js",
+    "./shogi-hand.js"
+  ],
+  "scripts": {
+    "test": "node test.mjs"
+  }
+}

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Shogi SFEN Font Test</title>
+<style>
+  @font-face {
+    font-family: "ShogiSFEN";
+    src: url("shogi.ttf") format("truetype");
+  }
+  body { font-family: sans-serif; margin: 2rem; }
+  .piece { font-family: "ShogiSFEN"; font-size: 48px; }
+  svg text { font-family: "ShogiSFEN"; font-size: 40px; }
+  table { border-collapse: collapse; margin: 0.5rem 0; }
+  th, td { padding: 4px 12px; text-align: center; border: 1px solid #ddd; }
+  th { background: #f5f5f5; font-weight: normal; font-size: 0.9rem; }
+  td.sample { font-family: "ShogiSFEN"; font-size: 48px; line-height: 1.1; }
+  .ss01 { font-feature-settings: "ss01"; }
+  .ss02 { font-feature-settings: "ss02"; }
+  .both { font-feature-settings: "ss01", "ss02"; }
+  .note { color: #666; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>Shogi SFEN フォントテスト</h1>
+<p class="note">先に <code>go run . {入力フォント}</code> で <code>shogi.ttf</code> を生成しておくこと（リポジトリには含めていない）。</p>
+
+<h2>基本駒 (先手 = 大文字 / 後手 = 小文字)</h2>
+<div class="piece">P L N S G B R K</div>
+<div class="piece">p l n s g b r k</div>
+
+<h2>成駒 (リガチャ: + と組み合わせ)</h2>
+<div class="piece">+P +L +N +S +B +R</div>
+<div class="piece">+p +l +n +s +b +r</div>
+
+<h2>異体字・反転字（1）stylistic set で切り替える</h2>
+<p>
+  <strong>本文は SFEN のまま（<code>K</code> / <code>+B</code>）</strong>で、CSS の
+  <code>font-feature-settings</code> で字だけが変わる。ブラウザの HTML/SVG 専用。
+</p>
+<table>
+  <tr><th>CSS</th><th>本文</th><th>表示</th></tr>
+  <tr><td>（なし）</td><td><code>K +B</code></td><td class="sample">K +B</td></tr>
+  <tr><td><code>"ss01"</code></td><td><code>K +B</code></td><td class="sample ss01">K +B</td></tr>
+  <tr><td><code>"ss02"</code></td><td><code>K +B</code></td><td class="sample ss02">K +B</td></tr>
+  <tr><td><code>"ss01", "ss02"</code></td><td><code>K +B</code></td><td class="sample both">K +B</td></tr>
+</table>
+<p class="note">
+  ⚠️ <code>font-feature-settings</code> は個別の値が積み上がらず、後から当てた宣言が丸ごと勝つ。
+  両方効かせるには 1 つの宣言にまとめること。
+</p>
+
+<h2>異体字・反転字（2）文字で選ぶ</h2>
+<p>
+  本文の文字自体を変える。<strong>Canvas 2D や Go 側の画像生成でも同じように出る</strong>
+  （そちらは GSUB を解釈しないので stylistic set が効かない）。
+</p>
+<table>
+  <tr><th>出したい字</th><th>描く文字</th><th>表示</th></tr>
+  <tr><td>王（既定）</td><td><code>K</code> / <code>k</code> / <code>王</code></td><td class="sample">K</td></tr>
+  <tr><td>玉</td><td><code>玉</code> (U+7389)</td><td class="sample">玉</td></tr>
+  <tr><td>馬（成角）</td><td><code>+B</code> / <code>馬</code></td><td class="sample">+B</td></tr>
+  <tr><td>左馬</td><td><code>&amp;#xE000;</code>（私用領域）</td><td class="sample">&#xE000;</td></tr>
+</table>
+<p class="note">
+  左馬は「馬」を左右反転したもの。並べて確認 →
+  <span class="piece">&#x99AC;&#xE000;</span><br>
+  U+E000 はこのフォントが勝手に決めた符号位置なので、駒フォントを当てていない要素では別の字（または豆腐）になる:
+  <span style="font-size:2rem">&#xE000;</span>
+</p>
+
+<h2>SVG での利用例</h2>
+<svg width="500" height="70" style="border:1px solid #ccc">
+  <text x="10" y="50">P</text>
+  <text x="70" y="50">+P</text>
+  <text x="160" y="50">R</text>
+  <text x="220" y="50">+R</text>
+  <text x="310" y="50">k</text>
+  <text x="370" y="50">&#x7389;</text>
+  <text x="430" y="50">&#xE000;</text>
+</svg>
+
+<p>期待表示: 歩 香 桂 銀 金 角 飛 王 / 成駒は と 杏 圭 全 馬 龍 / 異体字は 玉 と 左馬（馬の鏡像）</p>
+</body>
+</html>

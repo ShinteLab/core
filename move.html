@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Shogi Board Editor</title>
+<style>
+  @font-face {
+    font-family: "ShogiSFEN";
+    src: url("shogi.ttf") format("truetype");
+  }
+  body {
+    font-family: sans-serif;
+    margin: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  svg { touch-action: none; }
+  body.dragging { user-select: none; -webkit-user-select: none; }
+  svg text.piece {
+    font-family: "ShogiSFEN";
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+  .drag-ghost {
+    position: fixed;
+    font-family: "ShogiSFEN";
+    font-size: 44px;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.85;
+    transform: translate(-50%, -50%);
+  }
+  .drag-ghost.gote { transform: translate(-50%, -50%) rotate(180deg); }
+  svg text.coord {
+    font-size: 16px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    fill: #555;
+  }
+  .hand {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: #555;
+  }
+  .hand .piece-btn {
+    font-family: "ShogiSFEN";
+    font-size: 36px;
+    cursor: pointer;
+    padding: 0 4px;
+    border-radius: 6px;
+    user-select: none;
+  }
+  .hand .piece-btn.gote { transform: rotate(180deg); }
+  .hand .piece-btn.selected { background: #ffd75e; }
+  .hand .count { font-size: 14px; color: #333; }
+  #sfen {
+    background: #f0f0f0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-family: Consolas, monospace;
+    font-size: 14px;
+  }
+  .note { font-size: 12px; color: #888; }
+</style>
+</head>
+<body>
+<h1>将棋盤面エディタ</h1>
+<div class="hand" id="hand-w"></div>
+<svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+<div class="hand" id="hand-b"></div>
+<code id="sfen"></code>
+<div class="note">駒をクリック/ドラッグで移動 (移動先の駒は手駒に)。手駒をクリックすると盤に打てます。駒を右クリックで種類変更 (P → +P → p → +p)。</div>
+
+<!-- SFEN の解析・生成は共有ロジック(core/web)に委譲。ES module を読み込むため
+     file:// 直開きは不可。HTTP 配信で開くこと(例: npx --yes serve core → /move.html)。 -->
+<script type="module">
+import { toGrid, formatBoard } from "./web/sfen.js";
+
+const INITIAL = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL";
+
+const CELL = 56, MARGIN = 28, N = 9;
+const BOARD = CELL * N;
+const FONT_SIZE = 44;
+const KANJI = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
+const HAND_ORDER = ["R", "B", "G", "S", "N", "L", "P"]; // SFEN の手駒並び順
+const PROMOTABLE = new Set(["P", "L", "N", "S", "B", "R"]); // 成れる駒 (金・王は不可)
+
+// ---- 状態 ----
+const state = {
+  board: [],                 // [9][9] のトークン ("P", "+p", null)
+  hands: { b: {}, w: {} },   // 大文字キーの枚数
+  sel: null,                 // {type:"board",r,c} | {type:"hand",side,letter}
+};
+
+// 盤面は [9][9] のトークン配列(空は "" または null)。SFEN 解析は共有の toGrid に委譲。
+state.board = toGrid(INITIAL);
+
+function sideOf(tok) {
+  const ch = tok[tok.length - 1];
+  return ch === ch.toLowerCase() ? "w" : "b";
+}
+
+// 取った駒は成りを解除し、取った側の手駒に加える
+function capture(tok, bySide) {
+  const letter = tok[tok.length - 1].toUpperCase();
+  state.hands[bySide][letter] = (state.hands[bySide][letter] || 0) + 1;
+}
+
+function toSFEN() {
+  // 盤面部分の空マス圧縮・段区切りは共有の formatBoard に委譲。
+  const rows = formatBoard((r, c) => state.board[r][c]);
+  let hand = "";
+  for (const side of ["b", "w"]) {
+    for (const l of HAND_ORDER) {
+      const n = state.hands[side][l] || 0;
+      if (!n) continue;
+      const p = side === "b" ? l : l.toLowerCase();
+      hand += (n > 1 ? n : "") + p;
+    }
+  }
+  return `${rows} b ${hand || "-"} 1`;
+}
+
+// ---- 操作 ----
+// 盤上の駒を fr,fc から tr,tc へ移動 (移動先に駒があれば手駒化)
+function doMove(fr, fc, tr, tc) {
+  const moving = state.board[fr][fc];
+  if (!moving) return;
+  const tok = state.board[tr][tc];
+  if (tok) capture(tok, sideOf(moving));
+  state.board[tr][tc] = moving;
+  state.board[fr][fc] = null;
+  state.sel = null;
+}
+
+function clickBoard(r, c) {
+  if (suppressClick) { suppressClick = false; return; }
+  const sel = state.sel;
+  const tok = state.board[r][c];
+  if (!sel) {
+    if (tok) state.sel = { type: "board", r, c };
+  } else if (sel.type === "board") {
+    if (sel.r === r && sel.c === c) {
+      state.sel = null; // 同じマスで選択解除
+    } else {
+      doMove(sel.r, sel.c, r, c);
+    }
+  } else { // 手駒を打つ
+    if (tok) capture(tok, sel.side);
+    state.board[r][c] = sel.side === "b" ? sel.letter : sel.letter.toLowerCase();
+    state.hands[sel.side][sel.letter]--;
+    state.sel = null;
+  }
+  render();
+}
+
+// 右クリックで駒種を循環変更する。
+// 成れる駒: P → +P → p → +p → P。 成れない駒 (G,K): 大文字 ⇔ 小文字。
+function cycleToken(tok) {
+  const promoted = tok[0] === "+";
+  const letter = tok[tok.length - 1];
+  const base = letter.toUpperCase();
+  const isLower = letter === letter.toLowerCase();
+  if (!PROMOTABLE.has(base)) {
+    return isLower ? base : base.toLowerCase();
+  }
+  let idx = (promoted ? 1 : 0) + (isLower ? 2 : 0);
+  idx = (idx + 1) % 4;
+  const ch = idx >= 2 ? base.toLowerCase() : base;
+  return (idx % 2 === 1 ? "+" : "") + ch;
+}
+
+function rightClickBoard(r, c) {
+  const tok = state.board[r][c];
+  if (!tok) return;
+  state.board[r][c] = cycleToken(tok);
+  render();
+}
+
+function clickHand(side, letter) {
+  const sel = state.sel;
+  if (sel && sel.type === "hand" && sel.side === side && sel.letter === letter) {
+    state.sel = null;
+  } else {
+    state.sel = { type: "hand", side, letter };
+  }
+  render();
+}
+
+// ---- 描画 ----
+const svg = document.getElementById("board");
+const size = BOARD + MARGIN * 2;
+svg.setAttribute("width", size);
+svg.setAttribute("height", size);
+svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+
+function el(name, attrs, text) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  svg.appendChild(e);
+  return e;
+}
+
+// ---- ドラッグ＆ドロップ ----
+let suppressClick = false;       // ドラッグ直後の click を無視する
+let drag = null;                 // {r, c, startX, startY, moved, ghost}
+
+// クライアント座標から盤のマス (viewBox のスケールも考慮) を求める
+function cellFromPoint(clientX, clientY) {
+  const rect = svg.getBoundingClientRect();
+  const x = (clientX - rect.left) * (size / rect.width) - MARGIN;
+  const y = (clientY - rect.top) * (size / rect.height) - MARGIN;
+  const c = Math.floor(x / CELL), r = Math.floor(y / CELL);
+  if (r < 0 || r >= N || c < 0 || c >= N) return null;
+  return { r, c };
+}
+
+function startDrag(e, r, c) {
+  if (e.button !== 0) return; // 左ボタンのみ
+  if (!state.board[r][c]) return;
+  e.preventDefault(); // ドラッグによるテキスト選択を抑制
+  drag = { r, c, startX: e.clientX, startY: e.clientY, moved: false, ghost: null };
+}
+
+function onPointerMove(e) {
+  if (!drag) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 5) return;
+  if (!drag.moved) {
+    drag.moved = true;
+    const tok = state.board[drag.r][drag.c];
+    const ghost = document.createElement("div");
+    ghost.className = "drag-ghost" + (sideOf(tok) === "w" ? " gote" : "");
+    ghost.textContent = tok;
+    document.body.appendChild(ghost);
+    drag.ghost = ghost;
+    document.body.classList.add("dragging"); // ページ全体の選択を無効化
+    state.dragHide = { r: drag.r, c: drag.c }; // 元のマスの駒は隠す
+    render();
+  }
+  drag.ghost.style.left = e.clientX + "px";
+  drag.ghost.style.top = e.clientY + "px";
+}
+
+function onPointerUp(e) {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  state.dragHide = null;
+  document.body.classList.remove("dragging");
+  if (d.ghost) d.ghost.remove();
+  if (!d.moved) return; // 動かしていなければ click 扱い (選択/移動)
+  suppressClick = true;
+  setTimeout(() => { suppressClick = false; }, 0);
+  const t = cellFromPoint(e.clientX, e.clientY);
+  if (t && !(t.r === d.r && t.c === d.c)) doMove(d.r, d.c, t.r, t.c);
+  render();
+}
+
+window.addEventListener("pointermove", onPointerMove);
+window.addEventListener("pointerup", onPointerUp);
+
+function render() {
+  svg.innerHTML = "";
+  el("rect", { x: MARGIN, y: MARGIN, width: BOARD, height: BOARD,
+               fill: "#f3c877", stroke: "#5a3b1a", "stroke-width": 3 });
+  for (let i = 1; i < N; i++) {
+    const p = MARGIN + i * CELL;
+    el("line", { x1: p, y1: MARGIN, x2: p, y2: MARGIN + BOARD,
+                 stroke: "#5a3b1a", "stroke-width": 1 });
+    el("line", { x1: MARGIN, y1: p, x2: MARGIN + BOARD, y2: p,
+                 stroke: "#5a3b1a", "stroke-width": 1 });
+  }
+  for (const gx of [3, 6]) for (const gy of [3, 6]) {
+    el("circle", { cx: MARGIN + gx * CELL, cy: MARGIN + gy * CELL,
+                   r: 4, fill: "#5a3b1a" });
+  }
+  for (let c = 0; c < N; c++) {
+    el("text", { class: "coord", x: MARGIN + c * CELL + CELL / 2, y: MARGIN / 2 },
+       String(N - c));
+  }
+  for (let r = 0; r < N; r++) {
+    el("text", { class: "coord", x: MARGIN + BOARD + MARGIN / 2,
+                 y: MARGIN + r * CELL + CELL / 2 }, KANJI[r]);
+  }
+
+  const sel = state.sel;
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      const x = MARGIN + c * CELL, y = MARGIN + r * CELL;
+      if (sel && sel.type === "board" && sel.r === r && sel.c === c) {
+        el("rect", { x, y, width: CELL, height: CELL, fill: "#ffd75e" });
+      }
+      const tok = state.board[r][c];
+      const hidden = state.dragHide && state.dragHide.r === r && state.dragHide.c === c;
+      if (tok && !hidden) {
+        const cx = x + CELL / 2, cy = y + CELL / 2;
+        const attrs = { class: "piece", x: cx, y: cy, "font-size": FONT_SIZE };
+        if (sideOf(tok) === "w") attrs.transform = `rotate(180 ${cx} ${cy})`;
+        el("text", attrs, tok);
+      }
+      // クリック / ドラッグ受け付け用の透明マス
+      const hit = el("rect", { x, y, width: CELL, height: CELL,
+                               fill: "transparent", style: "cursor:pointer" });
+      hit.addEventListener("click", () => clickBoard(r, c));
+      hit.addEventListener("contextmenu", (e) => { e.preventDefault(); rightClickBoard(r, c); });
+      hit.addEventListener("pointerdown", (e) => startDrag(e, r, c));
+    }
+  }
+
+  for (const side of ["b", "w"]) {
+    const div = document.getElementById("hand-" + side);
+    div.innerHTML = "";
+    const label = document.createElement("span");
+    label.textContent = side === "b" ? "☗ 先手 手駒:" : "☖ 後手 手駒:";
+    div.appendChild(label);
+    let any = false;
+    for (const l of HAND_ORDER) {
+      const n = state.hands[side][l] || 0;
+      if (!n) continue;
+      any = true;
+      const btn = document.createElement("span");
+      btn.className = "piece-btn" + (side === "w" ? " gote" : "");
+      if (sel && sel.type === "hand" && sel.side === side && sel.letter === l) {
+        btn.className += " selected";
+      }
+      btn.textContent = l;
+      btn.addEventListener("click", () => clickHand(side, l));
+      div.appendChild(btn);
+      if (n > 1) {
+        const cnt = document.createElement("span");
+        cnt.className = "count";
+        cnt.textContent = "×" + n;
+        div.appendChild(cnt);
+      }
+    }
+    if (!any) {
+      const none = document.createElement("span");
+      none.textContent = "なし";
+      div.appendChild(none);
+    }
+  }
+
+  document.getElementById("sfen").textContent = toSFEN();
+}
+
+render();
+</script>
+</body>
+</html>

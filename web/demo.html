@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>&lt;shogi-board&gt; デモ</title>
+<style>
+  body { font-family: sans-serif; margin: 2rem; display: flex; flex-wrap: wrap; gap: 2rem; align-items: flex-start; }
+  section { display: flex; flex-direction: column; gap: .5rem; align-items: center; }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+</style>
+<!-- 素の HTML からは index.js を module 読み込みするだけで <shogi-board> が使える -->
+<script type="module" src="./index.js"></script>
+</head>
+<body>
+  <section>
+    <h3>平手初期局面</h3>
+    <shogi-board></shogi-board>
+    <code>&lt;shogi-board&gt;</code>
+  </section>
+
+  <section>
+    <h3>直前手の強調 (7g7f)</h3>
+    <shogi-board
+      sfen="lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL"
+      last-move="7g7f"></shogi-board>
+    <code>last-move="7g7f"</code>
+  </section>
+
+  <section>
+    <h3>後手視点 (flip)</h3>
+    <shogi-board flip last-move="7g7f"
+      sfen="lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL"></shogi-board>
+    <code>flip</code>
+  </section>
+</body>
+</html>

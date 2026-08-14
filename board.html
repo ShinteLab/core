@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Shogi Board</title>
+<style>
+  body {
+    font-family: sans-serif;
+    margin: 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; }
+  #sfen-input { width: min(90vw, 640px); font-family: Consolas, monospace; padding: 6px 10px; }
+  .opts { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .opts label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+  .note { color: #666; font-size: 0.85rem; max-width: min(90vw, 640px); text-align: center; }
+
+  .opts select { font-family: inherit; padding: 2px 4px; }
+</style>
+<!-- 盤の描画は共有 Web Component <shogi-board> (core/web) に一本化。
+     SFEN パースや SVG 組み立ての重複ロジックはこのページには持たない。
+     注: ES module を読み込むため file:// 直開きは不可。HTTP 配信で開くこと
+     (例: npx --yes serve core、または任意の静的サーバ)。 -->
+<script type="module" src="./web/index.js"></script>
+<!-- 既定以外の駒フォントは import した画面だけが読み込む(index.js には入れていない)。 -->
+<script type="module" src="./web/font-gothic.js"></script>
+</head>
+<body>
+<h1>将棋盤面 (SFEN 表示)</h1>
+<input id="sfen-input"
+  value="lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL"
+  spellcheck="false">
+<div class="opts">
+  <label>駒フォント
+    <select id="opt-font">
+      <option value="">Noto Serif JP（既定・明朝）</option>
+      <option value="ShogiSFEN Gothic">Noto Sans JP（ゴシック）</option>
+    </select>
+  </label>
+</div>
+<div class="opts">
+  <label>玉を利用（王→玉）
+    <select id="opt-gyoku">
+      <option value="">利用しない（両方とも王）</option>
+      <option value="both">両方とも玉</option>
+      <option value="black">先手だけ玉</option>
+      <option value="white">後手だけ玉</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="opt-uma"> 左馬にする（馬→左馬）</label>
+</div>
+<p class="note">
+  切り替えているのは <code>&lt;shogi-board&gt;</code> の属性だけ（中身は駒フォントの stylistic set）。
+  <strong>SVG に描く文字も SFEN も駒の扱いも変わらない。</strong>
+  先後まとめてでよければ、属性を付けずに
+  <code>shogi-board { font-feature-settings: "ss01" }</code> と CSS を足すだけでも切り替わる。
+  左馬を見るには成った角（<code>+B</code> / <code>+b</code>）が盤に要る →
+  <button type="button" id="preset-uma">馬のいる局面を入れる</button>
+</p>
+<p class="note" id="dom-note"></p>
+
+<shogi-board id="board"
+  sfen="lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL"></shogi-board>
+
+<script type="module">
+  const input = document.getElementById("sfen-input");
+  const board = document.getElementById("board");
+  input.addEventListener("input", () => board.setAttribute("sfen", input.value));
+
+  // 先後の角を成らせた局面。左馬の確認用。
+  document.getElementById("preset-uma").addEventListener("click", () => {
+    input.value = "lnsgkgsnl/1r5+B1/ppppppppp/9/9/9/PPPPPPPPP/1+b5R1/LNSGKGSNL";
+    board.setAttribute("sfen", input.value);
+  });
+
+  // 実際に SVG へ入っている文字と、当たっている feature を出す。
+  // 「字が変わっても本文は SFEN のまま」であることをこの画面で確かめられるように。
+  const domNote = document.getElementById("dom-note");
+  function showDom() {
+    const pieces = [...board.shadowRoot.querySelectorAll("text.piece")];
+    const ff = (tok) => {
+      const el = pieces.find((t) => t.textContent === tok);
+      return el ? getComputedStyle(el).fontFeatureSettings : "(盤に無い)";
+    };
+    const attrs = ["gyoku", "hidari-uma"]
+      .filter((a) => board.hasAttribute(a))
+      .map((a) => (board.getAttribute(a) ? `${a}="${board.getAttribute(a)}"` : a));
+    domNote.textContent =
+      `属性: ${attrs.join(" ") || "(なし)"}  /  SVG のテキストは "K" "k" のまま  /  `
+      + `先手玉: ${ff("K")}  後手玉: ${ff("k")}`;
+  }
+
+  // 駒フォントは CSS のカスタムプロパティで選ぶ(シャドウ DOM の中まで継承する)。
+  // 実体は上で import した font-*.js が文書に登録している。
+  const fontSel = document.getElementById("opt-font");
+  fontSel.addEventListener("change", () => {
+    if (fontSel.value === "") board.style.removeProperty("--shogi-font");
+    else board.style.setProperty("--shogi-font", `"${fontSel.value}"`);
+    showDom();
+  });
+
+  // 玉は値で先後を選ぶ(王将/玉将の呼び分けなので片側だけがありうる)。
+  const gyokuSel = document.getElementById("opt-gyoku");
+  gyokuSel.addEventListener("change", () => {
+    if (gyokuSel.value === "") board.removeAttribute("gyoku");
+    else board.setAttribute("gyoku", gyokuSel.value === "both" ? "" : gyokuSel.value);
+    showDom();
+  });
+
+  // 左馬は盤の見た目の選択なので有無だけ。先後で分けない。
+  const umaBox = document.getElementById("opt-uma");
+  umaBox.addEventListener("change", () => {
+    if (umaBox.checked) board.setAttribute("hidari-uma", "");
+    else board.removeAttribute("hidari-uma");
+    showDom();
+  });
+  showDom();
+</script>
+</body>
+</html>
