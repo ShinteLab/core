@@ -14,7 +14,8 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 | `usi/client/` | `github.com/ShinteLab/core/usi/client` | **USI エンジンと話すクライアント側**（＝将棋 UI 側）。セッション管理と `os/exec` での起動。**ホットパスに乗らない層なので親と分けてある** |
 | `kifu/` | `github.com/ShinteLab/core/kifu` | KIF 仕様（指し手行・終局判定・KIF ドキュメント組み立て）と**USI の手 → 日本語表記**（盤が要るのでここ。`usi` ではない） |
 | `web/` | `@shinte/web`（JS）/ `github.com/ShinteLab/core/web`（Go embed） | 共有フロント。`<shogi-board>` と SFEN/USI/KIF の JS ロジック。詳細は `web/README.md` |
-| root (`package main`) | — | 将棋駒表示用の軽量フォント生成ツール（旧 `board` / 旧モジュール名 `shogifont`） |
+| `shogifont/` | `github.com/ShinteLab/core/shogifont` | **将棋駒表示用の軽量フォントを焼くライブラリ**（`Faces` / `Build`） |
+| root (`package main`) | — | 上の**薄い CLI**（旧 `board` / 旧モジュール名 `shogifont`） |
 
 `*.html`（`test.html` / `board.html` / `move.html`）はフォントと盤表示の動作確認用。
 
@@ -45,9 +46,10 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 
 ```powershell
 go test ./sfen ./usi/... ./kifu   # 仕様パッケージのテスト
-go test .                     # フォント生成ツール（入力フォント不要）
+go test ./shogifont           # フォント生成ライブラリ（入力フォント不要）
 node web/test.mjs             # JS 側ロジックのテスト
 go run . {inputfont} [output.ttf]        # フォント生成（core/ から）
+go run . -list {inputfont}               # 書体の一覧（TTC の中身・字が足りるか）
 ```
 
 HTML の確認は ES module を読むため **HTTP 配信が必要**（`test.html` のみ `file://` 可）:
@@ -282,18 +284,37 @@ t, _ = n.Next("3a2b")     // t.Text == "△同　銀"
 - ヘッダ付きドキュメントの組み立て（`Document`）は Go 側にのみある。
   指し手行の書式（`FormatLine` / `TerminalMarker`）は JS 側 `web/kifu.js` と揃えること。
 
-## フォント生成ツール（root, `package main`）
+## フォント生成（`shogifont/` と、その CLI である root）
 
 日本語フォントから駒の 14 文字だけを抜き出し、SFEN 表記
 (`P,L,N,S,G,B,R,K` / 小文字 / `+` 付き成駒) で表示できる TTF を生成する。
 
-- 入力: TTF / TTC / OTF（TTC はコレクション先頭のフォントを使用）
+- 入力: TTF / TTC / OTF
 - 出力: 省略時 `shogi.ttf`。19 グリフのみの軽量 TTF（Noto Serif JP 6MB → 約 13KB）
-- 実装は `shogi_font.go` の 1 ファイル。依存は `golang.org/x/image`（font/sfnt）のみ
+- 実装は `shogifont/shogifont.go` の 1 ファイル。依存は `golang.org/x/image`（font/sfnt）のみ
 
 ```powershell
-go run . [-name FAMILY] {inputfont} [output.ttf]
+go run . [-name FAMILY] [-index N] {inputfont} [output.ttf]
+go run . -list {inputfont}      # 書体の一覧（TTC の中身・字が足りるか）
 ```
+
+### ⚠️ ライブラリと CLI を分けてある（2026-08-16）
+
+**中身は `shogifont` パッケージで、root の `package main` はその薄い CLI でしかない。**
+以前はルートの `package main` に全部入っており、**`go run` で叩くことしかできなかった。**
+
+- **理由は ikkyoku の「端末に入っているフォントから駒の字を作る」。** ライセンスの都合で
+  同梱できるフォントが限られる（下記）ので、**アプリが動いている端末で焼いて、その端末で
+  だけ使う**（再配布しない）という経路が要る。**そのためには import できる入口が要る**
+- ⚠️ **ロジックを root に戻さないこと。** 戻すと import する側が消える
+- ⚠️ **`Faces` は `Build` の前に呼べること自体が要点。** 端末のフォントは大半が駒の字を
+  持たないので、**焼いてみて初めて分かる**のでは一覧に印を付けられない。
+  何が足りないかは `Face.Missing`（要る字は `Required()`）
+- **`Options.Index` は TTC の中の書体番号。** 以前は先頭決め打ちだったが、
+  `msmincho.ttc` のように 1 ファイルに MS 明朝と MS P明朝が同居しているものがあり、
+  それでは片方を選べない
+- ⚠️ **`Build` は `os.Exit` しない**（旧 `check`/`fatal` は CLI 側へ移した）。
+  ライブラリとして呼ぶ側がエラーを画面に出す
 
 ### 元フォントを変えて焼き分ける
 
@@ -306,7 +327,7 @@ go run . [-name FAMILY] {inputfont} [output.ttf]
 | `ShogiSFEN`（既定） | Noto Serif JP `NotoSerifJP-VF.ttf`（明朝） | **SIL OFL 1.1** |
 | `ShogiSFEN Gothic` | Noto Sans JP `NotoSansJP-VF.ttf`（ゴシック） | **SIL OFL 1.1** |
 
-⚠️ **足してよいのは、派生物の作成と再配布を認めるライセンスのフォントだけ。**
+⚠️ **`web/` に足してよいのは、派生物の作成と再配布を認めるライセンスのフォントだけ。**
 生成物は元フォントの字形をそのまま持つ派生物を配る行為で、**「手元に入っているから
 使える」ではない。** 実際に 3 つ外している:
 
@@ -330,6 +351,14 @@ go run . [-name FAMILY] {inputfont} [output.ttf]
   ⚠️ **配布物から外さないこと。** OFL がライセンス文の同梱を求めるので、
   `web/package.json` の `files` と `web/assets.go` の `//go:embed` の両方に入れてある
 - 既定以外は `web/` で**使う画面だけが読み込むモジュール**に分けてある（`web/README.md`）
+
+⚠️ **上の制約は「core が配るフォント」の話。「端末で焼いて自分で使う」は別の話。**
+ikkyoku が `shogifont` を import して端末のフォントから駒の字を作るのは、
+**再配布を伴わない**（生成物はその端末から出ない）。**この 2 つを混同しないこと** ——
+`web/font*.js` に足してよいかの判断基準を、端末側の生成にまで持ち込むと
+**「手元の游明朝で駒を表示する」という正当な使い方まで塞ぐ**ことになる。
+逆に、**端末で焼いたフォントを配ってよいわけでもない**（そちらは元フォントの条項が効く）。
+`shogifont` はどちらの判断もしない —— **入力に何を渡してよいかは呼び出し側の責任。**
 
 ### 文字マッピング (cmap)
 
@@ -423,9 +452,10 @@ HTML の属性名は大文字小文字を区別しない。**
 
 ### 検証方法
 
-1. `go test .`（`shogi_font_test.go`）。cmap の割り当て・リガチャ表・反転の座標・
-   生成した TTF の再パースまでを見る。**入力フォントを要求しない**（下記）
+1. `go test ./shogifont`（`shogifont/shogifont_test.go`）。cmap の割り当て・リガチャ表・
+   反転の座標・生成した TTF の再パースまでを見る。**入力フォントを要求しない**（下記）
 2. `core/` で `go run . C:\Windows\Fonts\yumin.ttf` で生成
+   （⚠️ **これは動作確認。游明朝の派生物は配れない** ——「元フォントを変えて焼き分ける」参照）
 3. 生成物を sfnt で再パースし、`PLNSGBRKplnsgbrk+` と漢字のグリフ索引・輪郭・送り幅を確認
    （`玉` が `王`/`K` と**別の GID** になっていること。左馬は `馬` の bbox を
    `[xmin,xmax]` → `[adv-xmax, adv-xmin]` に折り返した値になる）
@@ -448,9 +478,11 @@ HTML の属性名は大文字小文字を区別しない。**
 
 ### フォントを作り直したら
 
-`web/font.js` / `web/font-ounen.js` / `web/font-doheta.js`（base64 data URL、自動生成）も
-更新する。**3 つとも焼き直して `node web/gen-fonts.mjs` を通すこと。**
-手順は `web/README.md` を参照。
+`web/font.js` / `web/font-gothic.js`（base64 data URL、自動生成）も更新する。
+**2 つとも焼き直して `node web/gen-fonts.mjs` を通すこと。** 手順は `web/README.md` を参照。
+
+⚠️ **ikkyoku が端末で焼くフォントはここに関係しない**（ディスクにも残らず、
+その端末の webview に `@font-face` で流すだけ）。**焼き直しの手順に混ぜないこと。**
 
 ## HTML デモ
 
