@@ -52,9 +52,18 @@ type Options struct {
 // フォントの大半は駒の字を持たないので、選ばせる UI はこれを見て印を付ける。
 type Face struct {
 	Index     int    // コレクション内の位置 (Options.Index にそのまま渡せる)
-	Family    string // name ID 1
+	Family    string // name ID 1 (en-US 優先)
 	SubFamily string // 2 (Regular / Bold など)
 	Full      string // 4
+
+	// LocalFamily / LocalSubFamily は**日本語の名前** (name テーブルの ja-JP)。
+	// 無ければ空。
+	//
+	// ⚠️ **選ばせる UI はこちらを優先すること。** 日本語フォントは英語名しか
+	// 出さないと別物に見える (「玉ねぎ楷書激無料版」が
+	// "Tamanegi Kaisho Geki FreeVer 7" になる)。
+	LocalFamily    string
+	LocalSubFamily string
 
 	// 元フォントの権利表記。⚠️ **空でも「制約が無い」ではない**
 	// (name テーブルに条項を持たないフォントは珍しくない)。
@@ -111,15 +120,37 @@ func Faces(src []byte) ([]Face, error) {
 			}
 			return strings.TrimSpace(s)
 		}
+		// 名前は自前で読んだ name テーブルを優先する（言語を選べるのはこちらだけ）。
+		// ⚠️ **読めなかったときは x/image の答えに落ちる** —— 名前が読めないことは
+		// フォントが使えないことを意味しない。
+		nm := readNames(src, i)
+		or := func(a, b string) string {
+			if a != "" {
+				return a
+			}
+			return b
+		}
+		en := func(id uint16, fallback string) string {
+			return or(nm.pick(id, langWindowsEnUS, langWindowsJaJP), or(fallback, nm.any(id)))
+		}
 		face := Face{
-			Index:      i,
-			Family:     get(sfnt.NameIDFamily),
-			SubFamily:  get(sfnt.NameIDSubfamily),
-			Full:       get(sfnt.NameIDFull),
-			Copyright:  get(sfnt.NameIDCopyright),
-			Trademark:  get(sfnt.NameIDTrademark),
-			License:    get(sfnt.NameIDLicense),
-			LicenseURL: get(sfnt.NameIDLicenseURL),
+			Index:          i,
+			Family:         en(nameIDFamily, get(sfnt.NameIDFamily)),
+			SubFamily:      en(nameIDSubFamily, get(sfnt.NameIDSubfamily)),
+			Full:           en(nameIDFullName, get(sfnt.NameIDFull)),
+			LocalFamily:    nm.pick(nameIDFamily, langWindowsJaJP),
+			LocalSubFamily: nm.pick(nameIDSubFamily, langWindowsJaJP),
+			Copyright:      en(nameIDCopyright, get(sfnt.NameIDCopyright)),
+			Trademark:      en(nameIDTrademark, get(sfnt.NameIDTrademark)),
+			License:        en(nameIDLicense, get(sfnt.NameIDLicense)),
+			LicenseURL:     en(nameIDLicenseURL, get(sfnt.NameIDLicenseURL)),
+		}
+		// 日本語名が英語名と同じなら持たない（UI が同じ文字を 2 回出さないように）。
+		if face.LocalFamily == face.Family {
+			face.LocalFamily = ""
+		}
+		if face.LocalSubFamily == face.SubFamily {
+			face.LocalSubFamily = ""
 		}
 		for _, r := range req {
 			gi, err := f.GlyphIndex(&buf, r)
