@@ -73,7 +73,13 @@ const STYLE = `
     font-family: var(--shogi-font, "${FONT_FAMILY}");
     text-anchor: middle;
     dominant-baseline: central;
-    fill: #1a1a1a;
+    /* 駒の字の色の差し替え口。**字の強いフォント(太い明朝・毛筆)は少し薄いほうが
+       盤に映える**ので、色と濃さを変えられるようにしてある。
+         shogi-board { --shogi-piece-color: rgba(26, 26, 26, 0.75); }
+       ⚠️ **alpha 込みの 1 つの値**にしてあり、濃さ用のプロパティは持たない。
+       別々にすると、HTML で駒を描く利用側(駒台のチップなど)は
+       element の opacity を使うことになり**背景ごと透ける**。 */
+    fill: var(--shogi-piece-color, #1a1a1a);
   }
   /* ⚠️ **駒の字の選択(玉・左馬)にここで何も書かないこと。**
      font-feature-settings は継承プロパティなので、利用側が host か その祖先に

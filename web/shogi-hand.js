@@ -25,10 +25,13 @@ const STYLE = `
     color: #444;
   }
   .piece {
-    font-family: "${FONT_FAMILY}";
+    /* ⚠️ **差し替え口は shogi-board と揃えること**(--shogi-font / --shogi-piece-color)。
+       以前ここだけ family を直書きしていて、**盤のフォントを差し替えると
+       持ち駒だけ既定の字のまま**になっていた(2026-08-16 に直した)。 */
+    font-family: var(--shogi-font, "${FONT_FAMILY}");
     font-size: 28px;
     line-height: 1;
-    color: #1a1a1a;
+    color: var(--shogi-piece-color, #1a1a1a);
   }
   .piece.gote { transform: rotate(180deg); }
   .count { font-size: 13px; color: #333; margin-left: 1px; }
