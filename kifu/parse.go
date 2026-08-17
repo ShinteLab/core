@@ -1,7 +1,6 @@
 package kifu
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +14,9 @@ import (
 // **変化(`変化：N手`)は未対応**で、そこで読み取りを打ち切る(本譜のみを取る)。
 // kicho は棋譜を保存して外部ツールへ渡すのが目的なので、本譜が取れれば足りる。
 // 分岐を扱うなら Document 側にツリー表現を足すところから必要になる。
+//
+// **指し手が 0 手でもエラーにしない**(finish を参照)。error を返す余地は
+// 将来の解析エラーのために残してあるが、現状は常に nil。
 func Parse(s string) (Document, error) {
 	var d Document
 	lines := strings.Split(normalizeNewlines(stripBOM(s)), "\n")
@@ -59,10 +61,13 @@ func Parse(s string) (Document, error) {
 	return finish(d, sawTime)
 }
 
+// finish は読み取り結果を仕上げる。
+//
+// **指し手が 0 手でもエラーにしない。** 対局前の中継棋譜(ヘッダだけで
+// 指し手がまだ無い .kif)が正当に存在するため。「1 手も無い」は
+// 読み取りの失敗ではなく、まだ指されていないという事実。
+// 棋譜として成立しているかの判断は呼び出し側が行う。
 func finish(d Document, sawTime bool) (Document, error) {
-	if len(d.Moves) == 0 {
-		return Document{}, fmt.Errorf("kifu: 指し手が1手も読み取れませんでした")
-	}
 	d.ShowTime = sawTime
 	return d, nil
 }

@@ -136,6 +136,19 @@ type Document struct {
 	Moves    []Move
 }
 
+// Empty はヘッダも指し手も1つも読み取れなかったことを表す。
+//
+// Parse は**指し手が 0 手でもエラーにしない**(対局前の中継棋譜は
+// ヘッダだけで指し手がまだ無い)。そのため「そもそも KIF ではない」の判定は
+// 手数ではなくこちらで行う —— HTML やただの文章を読ませた場合は
+// ヘッダも指し手も取れないので true になる。
+func (d Document) Empty() bool {
+	return len(d.Moves) == 0 &&
+		d.Handicap == "" && d.Event == "" && d.Place == "" &&
+		d.Black == "" && d.White == "" &&
+		d.StartedAt.IsZero() && d.TimeLimit == 0 && d.Countdown == 0
+}
+
 // FormatTimeLimit は持ち時間を KIF のヘッダ表記にする(例 "各8時間", "各25分")。
 func FormatTimeLimit(d time.Duration) string {
 	if d <= 0 {

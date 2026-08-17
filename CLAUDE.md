@@ -182,13 +182,25 @@ KIF 形式（将棋の棋譜テキスト）の組み立て。スクレイピン�
 | `FormatSpend` / `FormatTotal` / `FormatTimes` | 消費時間欄 `( 4:00/01:00:00)` の組み立て |
 | `FormatTimeLimit` | 持ち時間ヘッダ（`各8時間` / `各25分`） |
 | `Move` / `Document` | 1手 / 1局分。`Document.String()` でヘッダ付き KIF を生成 |
-| `Parse(text)` | KIF テキスト → `Document`（読み取り） |
+| `Parse(text)` | KIF テキスト → `Document`（読み取り）。**指し手 0 手はエラーにしない** |
+| `Document.Empty()` | ヘッダも指し手も取れなかった（＝そもそも KIF ではない） |
 | `Document.EndMark()` | 最終手が終局ならその名称 |
 | `NewNotation(sfen)` / `Notation.Next(usi)` | **USI の手 → 日本語表記**（`"8h2b+"` → `"▲２二角成"`）。下記 |
 | `FormatMoves(sfen, moves)` | 読み筋（USI の並び）をまとめて日本語表記に |
 | `MoveText` | 1 手の表記。`Name`/`FromX`/`FromY` はそのまま `kifu.Move` に入る |
 | `NewDecoder()` / `Decoder.Next(m)` / `DecodeMoves(moves)` | **KIF の指し手 → USI**（`"２二角成"(88)` → `"8h2b+"`）。下記 |
 | `StartSFEN(handicap)` / `Document.StartSFEN()` | **手合割 → 初期局面の SFEN**（`decode.go`） |
+
+#### 指し手が 0 手でもエラーにしない
+
+中継サイトは**対局開始前から棋譜を配信している**（ヘッダだけで指し手が無い `.kif`）。
+「1 手も無い」は読み取りの失敗ではなく、まだ指されていないという事実なので
+`Parse` はそのまま `Document` を返す。
+
+**「そもそも KIF ではない」の判定は手数ではなく `Document.Empty()` で行う**
+（HTML やただの文章はヘッダも指し手も取れないので `true`）。
+指し手が要る用途（`ikkyoku` の棋譜貼り付けなど）は呼び出し側で
+`len(doc.Moves) == 0` を弾くこと。
 
 ### KIF の指し手 → USI（`decode.go`）
 
