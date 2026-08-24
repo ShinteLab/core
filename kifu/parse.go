@@ -28,8 +28,12 @@ func Parse(s string) (Document, error) {
 			continue
 		}
 		switch {
-		case strings.HasPrefix(line, "*"), strings.HasPrefix(line, "#"):
-			// コメント・メタ行
+		case strings.HasPrefix(line, "*"):
+			// コメント行。直前の手に付ける(まだ1手も無ければ初期局面のコメント)。
+			addComment(&d, strings.TrimPrefix(line, "*"))
+			continue
+		case strings.HasPrefix(line, "#"):
+			// `# --- Kifu for Windows ...` のようなメタ行。コメントではない。
 			continue
 		case strings.HasPrefix(line, "手数"):
 			// 指し手の列ヘッダ
@@ -70,6 +74,20 @@ func Parse(s string) (Document, error) {
 func finish(d Document, sawTime bool) (Document, error) {
 	d.ShowTime = sawTime
 	return d, nil
+}
+
+// addComment は `*` 行の中身を直前の手のコメントに足す。
+// 指し手より前の `*` 行は初期局面のコメントとして Document 側に積む。
+// 複数行にわたるコメントは "\n" で連結する(String が1行ずつ `*` を付け直す)。
+func addComment(d *Document, text string) {
+	dst := &d.Comment
+	if n := len(d.Moves); n > 0 {
+		dst = &d.Moves[n-1].Comment
+	}
+	if *dst != "" {
+		*dst += "\n"
+	}
+	*dst += text
 }
 
 // utf8BOM は UTF-8 のバイトオーダーマーク。
