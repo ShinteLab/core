@@ -137,6 +137,7 @@ engine の内部座標 (x,y in 1..9) とは別物。混同しないこと。
 | `Exec(ctx, path, args...)` | 実行ファイルを起こして `Transport` を返す。**作業ディレクトリは実行ファイルの場所**（評価関数・定跡を相対パスで読むエンジンが多い） |
 | `Open(ctx, t, options)` | `usi` → `usiok` → **`setoption`** → `isready` → `readyok`。`ID` / `Author` / `Options`（宣言）/ `Applied`（送った内容）を持つ |
 | `Session.Analyze(ctx, sfen, opt, info)` | `position` → `go infinite` → info… → `bestmove` |
+| `Session.Mate(ctx, sfen, opt, info)` | **詰み探索**（2026-09-12）。`position` → `go mate` → info… → `checkmate`。答えは 4 通り（詰みあり / なし / **時間切れ** / 非対応） |
 | `Session.NewGame()` | `usinewgame`。**`readyok` のあと、最初の `position` の前**（Open では送らない） |
 | `Session.SetOption(name, value)` / `Close()` | |
 
@@ -158,6 +159,17 @@ engine の内部座標 (x,y in 1..9) とは別物。混同しないこと。
   指し手を追いかけるあいだは送らない（送るたびに置換表が捨てられる）
 - ⚠️ **`go movetime` を送らない。** 解釈しないエンジンがある（自作 `engine` がそれ）。
   **常に `go infinite` で投げ、期限が来たらこちらが `stop` を送る**
+- ⚠️ **詰み探索だけは逆で、`go mate <ms>` と時間を伝える**（`Mate`。2026-09-12）。
+  **時間切れは「詰みなし」ではない**ので、**エンジン自身に「timeout」と言わせる**
+  ほうが正しい（こちらが stop で切ると、詰みが無いのか分からなかったのかが消える）
+- ⚠️ **詰み探索は `bestmove` でも終わる。** USI の仕様は `checkmate` だが、
+  **やねうら王系は `go mate` に `bestmove <手>` を返す**（2026-09-12 に実測）。
+  **両方を終わりの合図として扱うこと** —— 片方しか見ていないと、相手によっては
+  **黙って返ってこない**（`bestmove resign` は「詰みなし」）
+- ⚠️ **詰将棋エンジンは通常の `go` に答えないことがある**（KomoringHeights は
+  `bestmove resign` を返す。実測）。**同じエンジンを通常解析にも使えると思わないこと**
+- ⚠️ **`Analyze` と `Mate` を 1 つに畳まないこと。** 答えの形がそもそも違う
+  （最善手と評価値 / 詰むか否かとその手順）
 - ⚠️ **探索を始める前に、前の探索の残りを捨てる**（`drain`）。bestmove のあとにも info を
   吐くエンジンがあり、溜めたままだと前の局面の評価値を今の局面のものとして渡すうえ、
   **溜まりきるとエンジンの書き込みが詰まって `stop` にも応答できなくなる**（実際に固まった）

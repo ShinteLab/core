@@ -348,6 +348,112 @@ func (s *Session) Analyze(ctx context.Context, sfen string, opt GoOptions, info 
 	}
 }
 
+// MateOptions は詰み探索の条件。
+type MateOptions struct {
+	// Limit は考えさせる上限。0 なら stop まで（`go mate infinite`）。
+	//
+	// ⚠️ **こちらは `go mate <ms>` としてエンジンにも伝える**（`go movetime` を
+	// 送らない Analyze とは逆）。**詰み探索では「どれだけ考えたか」が答えの意味を
+	// 変える**（時間切れは「詰みなし」ではない）ので、**エンジン自身に
+	// 「時間切れだった」と言わせる**ほうが正しい。期限が来たら `stop` も送る。
+	Limit time.Duration
+}
+
+// MateResult は詰み探索の結末。
+type MateResult struct {
+	// Kind は答えの種類（詰みあり / 詰みなし / 時間切れ / 非対応）。
+	//
+	// ⚠️ **「詰みなし」と「時間切れ」を同じ扱いにしないこと。** 後者は
+	// **分からなかっただけ**で、長い時間で投げ直せば答えが変わる。
+	Kind usi.Checkmate
+	// Moves は詰み手順（USI 表記。攻方・玉方が交互）。詰みが無ければ空。
+	//
+	// ⚠️ **1 手しか返さないエンジンもある**（`bestmove` で答えるエンジンを
+	// 含む）。**手数を数えて「何手詰」と言い切らないこと。**
+	Moves []string
+	// Stopped はこちらから打ち切ったか。**打ち切りは失敗ではない。**
+	Stopped bool
+}
+
+// Mate は詰み探索（`position` → `go mate` → info… → `checkmate`）。
+//
+// **詰将棋を解かせる口。** `Analyze` と分けてあるのは、**答えの形がそもそも違う**から
+// （あちらは「最善手と評価値」、こちらは「詰むか否かと、詰むならその手順」）。
+//
+// ⚠️ **`bestmove` で答えるエンジンも受ける**（2026-09-12 に実測）。USI の仕様は
+// `checkmate` だが、やねうら王系は `go mate` に対して **`bestmove <手>` を返す**。
+// **どちらも終わりの合図として扱うこと** —— 片方しか見ていないと、相手によって
+// **黙って返ってこない**（一番たちの悪い壊れ方）。
+//
+// ⚠️ **詰将棋エンジンは通常の `go` に答えないことがある**（KomoringHeights は
+// `bestmove resign` を返す）。**同じエンジンを通常解析にも使えると思わないこと。**
+//
+// info はエンジンが info 行を出すたびに呼ばれる（nil 可）。`score mate` が入る。
+func (s *Session) Mate(ctx context.Context, sfen string, opt MateOptions, info func(usi.Info)) (MateResult, error) {
+	// ⚠️ **Analyze と同じく、前の探索の残りを捨ててから始める。**
+	s.drain()
+
+	if err := s.sendCtx(ctx, "position sfen "+sfen); err != nil {
+		return MateResult{}, err
+	}
+
+	limit := "infinite"
+	if opt.Limit > 0 {
+		limit = fmt.Sprint(opt.Limit.Milliseconds())
+		var cancel context.CancelFunc
+		// **エンジンの自己申告より少し待つ。** 期限ちょうどで打ち切ると、
+		// エンジンが「timeout」と言おうとしているところを奪ってしまう。
+		ctx, cancel = context.WithTimeout(ctx, opt.Limit+HandshakeTimeout)
+		defer cancel()
+	}
+	if err := s.sendCtx(ctx, "go mate "+limit); err != nil {
+		return MateResult{}, err
+	}
+
+	stopped := false
+	for {
+		select {
+		case <-ctx.Done():
+			if stopped {
+				return MateResult{Stopped: true}, fmt.Errorf("usi: エンジンが checkmate を返しません")
+			}
+			stopped = true
+			if err := s.send("stop"); err != nil {
+				return MateResult{Stopped: true}, err
+			}
+			grace := s.BestmoveGrace
+			if grace <= 0 {
+				grace = HandshakeTimeout
+			}
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), grace)
+			defer cancel()
+
+		case err := <-s.readErr:
+			return MateResult{Stopped: stopped}, fmt.Errorf("usi: エンジンとの通信が切れました: %w", err)
+
+		case line := <-s.lines:
+			if in, ok := usi.ParseInfo(line); ok {
+				if info != nil {
+					info(in)
+				}
+				continue
+			}
+			if kind, moves, ok := usi.ParseCheckmate(line); ok {
+				return MateResult{Kind: kind, Moves: moves, Stopped: stopped}, nil
+			}
+			// ⚠️ **`bestmove` でも終わる**（上の注記）。`resign` は「詰みなし」。
+			if move, _, ok := usi.ParseBestmove(line); ok {
+				if move == "resign" || move == "win" {
+					return MateResult{Kind: usi.CheckmateNone, Stopped: stopped}, nil
+				}
+				return MateResult{Kind: usi.CheckmateFound, Moves: []string{move}, Stopped: stopped}, nil
+			}
+			// 知らない行は読み飛ばす。
+		}
+	}
+}
+
 // Close はエンジンを終わらせる（`quit` を送ってから後始末）。
 func (s *Session) Close() error {
 	s.mu.Lock()

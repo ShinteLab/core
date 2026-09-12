@@ -194,3 +194,43 @@ func equalInfo(a, b Info) bool {
 	}
 	return reflect.DeepEqual(a, b)
 }
+
+// checkmate 行（`go mate` の答え）。**4 通りを取り違えないこと。**
+func TestParseCheckmate(t *testing.T) {
+	for _, tt := range []struct {
+		line  string
+		kind  Checkmate
+		moves []string
+		ok    bool
+	}{
+		{"checkmate B*4d 1a1b R*2b", CheckmateFound, []string{"B*4d", "1a1b", "R*2b"}, true},
+		{"checkmate G*5b", CheckmateFound, []string{"G*5b"}, true},
+		{"checkmate nomate", CheckmateNone, nil, true},
+		{"checkmate timeout", CheckmateTimeout, nil, true},
+		{"checkmate notimplemented", CheckmateNotImplemented, nil, true},
+		{"bestmove 7g7f", 0, nil, false},
+		{"checkmate", 0, nil, false},
+		{"", 0, nil, false},
+	} {
+		t.Run(tt.line, func(t *testing.T) {
+			kind, moves, ok := ParseCheckmate(tt.line)
+			if ok != tt.ok {
+				t.Fatalf("ok = %v, want %v", ok, tt.ok)
+			}
+			if !ok {
+				return
+			}
+			if kind != tt.kind {
+				t.Errorf("kind = %v, want %v", kind, tt.kind)
+			}
+			if len(moves) != len(tt.moves) {
+				t.Fatalf("moves = %v, want %v", moves, tt.moves)
+			}
+			for i := range moves {
+				if moves[i] != tt.moves[i] {
+					t.Errorf("moves[%d] = %q, want %q", i, moves[i], tt.moves[i])
+				}
+			}
+		})
+	}
+}

@@ -577,3 +577,134 @@ func TestExecFailsForMissingBinary(t *testing.T) {
 		t.Errorf("理由が伝わりません: %v", err)
 	}
 }
+
+// 詰み探索（`go mate` → `checkmate`）。**KomoringHeights で実測した形をそのまま偽物に言わせる。**
+func TestMateFound(t *testing.T) {
+	s, e := openFake(t, func(e *fakeEngine, cmd string) {
+		if strings.HasPrefix(cmd, "go mate") {
+			e.say("info time 1 nodes 3 score mate 1 pv G*5b",
+				"checkmate B*4d 1a1b R*2b 1b1a R*1b")
+		}
+	})
+
+	var infos int
+	r, err := s.Mate(context.Background(), "4k4/9/4P4/9/9/9/9/9/9 b G17p 1",
+		MateOptions{Limit: time.Second}, func(usi.Info) { infos++ })
+	if err != nil {
+		t.Fatalf("Mate: %v", err)
+	}
+	if r.Kind != usi.CheckmateFound {
+		t.Fatalf("Kind = %v, want 詰みあり", r.Kind)
+	}
+	if len(r.Moves) != 5 || r.Moves[0] != "B*4d" || r.Moves[4] != "R*1b" {
+		t.Errorf("Moves = %v（手順が全部入っていない）", r.Moves)
+	}
+	if infos == 0 {
+		t.Error("info が届いていません")
+	}
+	// ⚠️ **`go mate <ms>` として送ること**（時間切れをエンジン自身に言わせる）。
+	var sawGo bool
+	for len(e.Cmds) > 0 {
+		if cmd := <-e.Cmds; strings.HasPrefix(cmd, "go mate ") && cmd != "go mate infinite" {
+			sawGo = true
+		}
+	}
+	if !sawGo {
+		t.Error("go mate <ms> が送られていません")
+	}
+}
+
+// ⚠️ **「詰みなし」と「時間切れ」と「非対応」は別物**（時間切れは投げ直せば変わる）。
+func TestMateAnswers(t *testing.T) {
+	for _, tt := range []struct {
+		line string
+		want usi.Checkmate
+	}{
+		{"checkmate nomate", usi.CheckmateNone},
+		{"checkmate timeout", usi.CheckmateTimeout},
+		{"checkmate notimplemented", usi.CheckmateNotImplemented},
+	} {
+		t.Run(tt.line, func(t *testing.T) {
+			s, _ := openFake(t, func(e *fakeEngine, cmd string) {
+				if strings.HasPrefix(cmd, "go mate") {
+					e.say(tt.line)
+				}
+			})
+			r, err := s.Mate(context.Background(), "4k4/9/9/9/9/9/9/9/9 b 18p 1",
+				MateOptions{Limit: time.Second}, nil)
+			if err != nil {
+				t.Fatalf("Mate: %v", err)
+			}
+			if r.Kind != tt.want {
+				t.Errorf("Kind = %v, want %v", r.Kind, tt.want)
+			}
+			if len(r.Moves) != 0 {
+				t.Errorf("Moves = %v（手順が無い答えなのに入っている）", r.Moves)
+			}
+		})
+	}
+}
+
+// ⚠️ **`bestmove` で答えるエンジンも受けること**（やねうら王系は `go mate` に
+// bestmove を返す。実測）。片方しか見ていないと**黙って返ってこない**。
+func TestMateAcceptsBestmove(t *testing.T) {
+	t.Run("手を返す", func(t *testing.T) {
+		s, _ := openFake(t, func(e *fakeEngine, cmd string) {
+			if strings.HasPrefix(cmd, "go mate") {
+				e.say("info score mate 1 pv G*5b", "bestmove G*5b")
+			}
+		})
+		r, err := s.Mate(context.Background(), "sfen", MateOptions{Limit: time.Second}, nil)
+		if err != nil {
+			t.Fatalf("Mate: %v", err)
+		}
+		if r.Kind != usi.CheckmateFound || len(r.Moves) != 1 || r.Moves[0] != "G*5b" {
+			t.Errorf("Kind=%v Moves=%v", r.Kind, r.Moves)
+		}
+	})
+	t.Run("投了は詰みなし", func(t *testing.T) {
+		s, _ := openFake(t, func(e *fakeEngine, cmd string) {
+			if strings.HasPrefix(cmd, "go mate") {
+				e.say("bestmove resign")
+			}
+		})
+		r, err := s.Mate(context.Background(), "sfen", MateOptions{Limit: time.Second}, nil)
+		if err != nil {
+			t.Fatalf("Mate: %v", err)
+		}
+		if r.Kind != usi.CheckmateNone {
+			t.Errorf("Kind = %v, want 詰みなし", r.Kind)
+		}
+	})
+}
+
+// 答えないエンジンは打ち切れること（`stop` を送って諦める）。
+func TestMateStops(t *testing.T) {
+	s, e := openFake(t, func(e *fakeEngine, cmd string) {
+		// go mate に何も答えない（黙って返ってこないエンジンの再現）。
+		if cmd == "stop" {
+			e.say("checkmate timeout")
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	r, err := s.Mate(ctx, "sfen", MateOptions{}, nil)
+	if err != nil {
+		t.Fatalf("Mate: %v", err)
+	}
+	if !r.Stopped {
+		t.Error("打ち切ったことが分かりません")
+	}
+	if r.Kind != usi.CheckmateTimeout {
+		t.Errorf("Kind = %v, want 時間切れ", r.Kind)
+	}
+	var sawStop bool
+	for len(e.Cmds) > 0 {
+		if <-e.Cmds == "stop" {
+			sawStop = true
+		}
+	}
+	if !sawStop {
+		t.Error("stop が送られていません")
+	}
+}
