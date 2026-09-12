@@ -263,16 +263,27 @@ const (
 // **USI の詰み探索の答えは 4 通り**で、**どれも「checkmate」で始まる 1 行**:
 //
 //	checkmate <手順…>      詰みあり（攻方・玉方が交互に並ぶ USI 表記）
+//	checkmate              **手順なし＝既に詰んでいる**（下記）
 //	checkmate nomate       詰みなし
 //	checkmate timeout      時間内に解けなかった（**詰みなしではない**）
 //	checkmate notimplemented  詰み探索に対応していない
 //
 // ⚠️ **手順を 1 手だけ返すエンジンも、全部返すエンジンもある**ので、
 // **長さで意味を変えないこと**（`nomate` などの語だけで分ける）。
+//
+// ⚠️ **語が「checkmate」だけの行を捨てないこと**（2026-09-12 に実機で踏んだ）。
+// **既に詰んでいる局面**に `go mate` を送ると、KomoringHeights は
+// **手順の無い `checkmate` を返す**。2 語以上を要求していたせいでこの行を
+// 読み飛ばし、**返事を待ち続けて時間切れになっていた**（「エンジンが checkmate を
+// 返しません」）。**詰みあり・手順 0 手**として返し、意味付けは呼び出し側に任せる。
 func ParseCheckmate(line string) (kind Checkmate, moves []string, ok bool) {
 	f := strings.Fields(line)
-	if len(f) < 2 || f[0] != "checkmate" {
+	if len(f) == 0 || f[0] != "checkmate" {
 		return 0, nil, false
+	}
+	if len(f) == 1 {
+		// 手順なし＝既に詰んでいる（上の ⚠️）。
+		return CheckmateFound, nil, true
 	}
 	switch f[1] {
 	case "nomate":

@@ -348,6 +348,16 @@ func (s *Session) Analyze(ctx context.Context, sfen string, opt GoOptions, info 
 	}
 }
 
+// MateGrace は詰み探索で**エンジンの自己申告を待つ余裕**。
+//
+// `go mate <ms>` の ms を過ぎてもエンジンが答えないとき、**これだけ待ってから
+// `stop` を送る**（そのあと `BestmoveGrace` ぶん待って諦める）。
+//
+// ⚠️ **長くしないこと。** 答えないエンジンに当たったときの待ち時間がそのまま
+// これで決まる。**短くても損はしない** —— 素直なエンジンは ms のうちに
+// `checkmate timeout` を返してくる。
+const MateGrace = 3 * time.Second
+
 // MateOptions は詰み探索の条件。
 type MateOptions struct {
 	// Limit は考えさせる上限。0 なら stop まで（`go mate infinite`）。
@@ -403,7 +413,11 @@ func (s *Session) Mate(ctx context.Context, sfen string, opt MateOptions, info f
 		var cancel context.CancelFunc
 		// **エンジンの自己申告より少し待つ。** 期限ちょうどで打ち切ると、
 		// エンジンが「timeout」と言おうとしているところを奪ってしまう。
-		ctx, cancel = context.WithTimeout(ctx, opt.Limit+HandshakeTimeout)
+		// ⚠️ **余裕は短くすること**（2026-09-12。以前は `HandshakeTimeout`）。
+		// 答えないエンジンに当たったとき、**この余裕と `stop` の猶予がそのまま
+		// 待ち時間になる** —— 3 秒の詰み探索で 20 秒待たされて「返しません」では、
+		// 何が起きたのか分からない。
+		ctx, cancel = context.WithTimeout(ctx, opt.Limit+MateGrace)
 		defer cancel()
 	}
 	if err := s.sendCtx(ctx, "go mate "+limit); err != nil {
@@ -415,7 +429,8 @@ func (s *Session) Mate(ctx context.Context, sfen string, opt MateOptions, info f
 		select {
 		case <-ctx.Done():
 			if stopped {
-				return MateResult{Stopped: true}, fmt.Errorf("usi: エンジンが checkmate を返しません")
+				return MateResult{Stopped: true}, fmt.Errorf(
+					"usi: エンジンが詰み探索に答えません（go mate に対応していないか、この局面を扱えません）")
 			}
 			stopped = true
 			if err := s.send("stop"); err != nil {

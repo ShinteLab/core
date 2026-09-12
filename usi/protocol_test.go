@@ -208,8 +208,10 @@ func TestParseCheckmate(t *testing.T) {
 		{"checkmate nomate", CheckmateNone, nil, true},
 		{"checkmate timeout", CheckmateTimeout, nil, true},
 		{"checkmate notimplemented", CheckmateNotImplemented, nil, true},
+		// ⚠️ **手順なしの checkmate は「既に詰んでいる」**（KomoringHeights で実測）。
+		// **捨てると返事を待ち続けて時間切れになる**（実際に踏んだ）。
+		{"checkmate", CheckmateFound, nil, true},
 		{"bestmove 7g7f", 0, nil, false},
-		{"checkmate", 0, nil, false},
 		{"", 0, nil, false},
 	} {
 		t.Run(tt.line, func(t *testing.T) {
