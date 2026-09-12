@@ -360,6 +360,13 @@ const MateGrace = 3 * time.Second
 
 // MateOptions は詰み探索の条件。
 type MateOptions struct {
+	// MultiPV は**詰み手順をいくつ出させるか**（0/1 なら送らない）。
+	//
+	// **詰将棋では「他の詰み」＝余詰**なので、通常解析の候補手より意味が重い
+	// （**1 つでも別解があれば詰将棋としては不完全**）。
+	// ⚠️ **対応していないエンジンでは無視される**（候補が 1 本しか返らないことを
+	// 異常扱いしないこと）。
+	MultiPV int
 	// Limit は考えさせる上限。0 なら stop まで（`go mate infinite`）。
 	//
 	// ⚠️ **こちらは `go mate <ms>` としてエンジンにも伝える**（`go movetime` を
@@ -400,6 +407,12 @@ type MateResult struct {
 //
 // info はエンジンが info 行を出すたびに呼ばれる（nil 可）。`score mate` が入る。
 func (s *Session) Mate(ctx context.Context, sfen string, opt MateOptions, info func(usi.Info)) (MateResult, error) {
+	if opt.MultiPV > 1 {
+		// **対応していないエンジンは黙って無視する**ので、送るだけ送ってよい。
+		if err := s.SetOption("MultiPV", fmt.Sprint(opt.MultiPV)); err != nil {
+			return MateResult{}, err
+		}
+	}
 	// ⚠️ **Analyze と同じく、前の探索の残りを捨ててから始める。**
 	s.drain()
 
