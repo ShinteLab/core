@@ -68,8 +68,16 @@ func StartSFEN(handicap string) (string, error) {
 	return "", fmt.Errorf("kifu: 未対応の手合割です: %q", handicap)
 }
 
-// StartSFEN は Document の手合割に対応する初期局面の SFEN を返す。
-func (d Document) StartSFEN() (string, error) { return StartSFEN(d.Handicap) }
+// StartSFEN は Document の開始局面の SFEN を返す。
+//
+// ⚠️ **盤面図（`Start`）があればそちらが勝つ**（2026-09-16）。途中の局面から
+// 始まる棋譜は手合割では表せないので、**両方あるなら書いてある局面のほうが本物**。
+func (d Document) StartSFEN() (string, error) {
+	if s := strings.TrimSpace(d.Start); s != "" {
+		return s, nil
+	}
+	return StartSFEN(d.Handicap)
+}
 
 // 筋（全角数字。KIF は全角だが半角で書かれたものも読む）。
 var fileNumbers = map[rune]int{

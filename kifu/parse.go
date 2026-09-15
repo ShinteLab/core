@@ -21,10 +21,29 @@ func Parse(s string) (Document, error) {
 	var d Document
 	lines := strings.Split(normalizeNewlines(stripBOM(s)), "\n")
 
+	// **盤面図があれば開始局面はそちら**（2026-09-16）。手合割では表せない
+	// 途中の局面から始まる棋譜がこの形で書かれる。
+	//
+	// ⚠️ **読めなかったら黙って手合割へ倒さないこと** —— 盤面図が書いてある
+	// 以上、**手合割の初期局面はその棋譜の局面ではない**。落とすと
+	// 「平手の初形に途中の手順が乗った別の対局」として読めてしまう。
+	if HasBOD(s) {
+		start, err := ParseBOD(lines)
+		if err != nil {
+			return Document{}, err
+		}
+		d.Start = start
+	}
+
 	sawTime := false
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
 		if line == "" {
+			continue
+		}
+		// 盤面図の行は上で読んである。**ここでは読み飛ばす** ——
+		// 持駒の行は全角コロンを持つのでヘッダとして拾われてしまう。
+		if isBODLine(line) {
 			continue
 		}
 		switch {
@@ -74,6 +93,31 @@ func Parse(s string) (Document, error) {
 func finish(d Document, sawTime bool) (Document, error) {
 	d.ShowTime = sawTime
 	return d, nil
+}
+
+// isBODLine は盤面図の一部の行か（`Parse` の本体では読み飛ばす）。
+//
+// ⚠️ **持駒の行を落とすこと。** 「後手の持駒：なし」は全角コロンを持つので、
+// 外さないと**ヘッダとして拾われる**（今は知らないキーなので実害は出ないが、
+// 方言を足したときに黙って噛み合う）。
+func isBODLine(line string) bool {
+	switch {
+	case strings.HasPrefix(line, "+---"), strings.HasPrefix(line, "|"):
+		return true
+	case strings.TrimSpace(line) == strings.TrimSpace(bodFileHeader):
+		return true
+	case line == "後手番", line == "先手番", line == "上手番", line == "下手番":
+		return true
+	}
+	key, _, ok := splitHeader(line)
+	if !ok {
+		return false
+	}
+	switch key {
+	case "後手の持駒", "先手の持駒", "上手の持駒", "下手の持駒", "手番":
+		return true
+	}
+	return false
 }
 
 // addComment は `*` 行の中身を直前の手のコメントに足す。

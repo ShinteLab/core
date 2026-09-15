@@ -140,6 +140,18 @@ type Document struct {
 	// 初手より前に置かれた `*` 行がここに入る(読売のペイロードなら num:0 のコメント)。
 	Comment string
 	Moves   []Move
+	// Start は開始局面の SFEN（完全形）。**空なら手合割の初期局面**（2026-09-16）。
+	//
+	// **途中の局面から始まる棋譜**（撮った中継の 1 局面・詰将棋・次の一手）は
+	// 手合割では表せないので、KIF では**盤面図**として書かれる。読み書きは
+	// `ParseBOD` / `FormatBOD`。
+	//
+	// ⚠️ **手合割と両方を見ないこと。** 開始局面の解決は `StartSFEN()` の 1 か所で、
+	// **これが入っていれば手合割は見ない**（`String` も盤面図を書いて手合割を
+	// 書かない）。両方を並べると、読み手によって別の局面になる。
+	//
+	// ⚠️ **手数は当てにしないこと**（盤面図に手数の欄が無いので必ず 1 になる）。
+	Start string
 }
 
 // Empty はヘッダも指し手も1つも読み取れなかったことを表す。
@@ -188,11 +200,26 @@ func (d Document) String() string {
 	writeHeader("棋戦", d.Event)
 	writeHeader("場所", d.Place)
 
-	handicap := d.Handicap
-	if handicap == "" {
-		handicap = HirateHandicap
+	// ⚠️ **盤面図があるなら手合割は書かない**（2026-09-16）。両方あると、
+	// **読み手によって別の局面になる**（どちらを正とするかは書かれていない）。
+	// ⚠️ **盤面図は先手・後手より前**（KIF の慣例。持駒の行が対になっている）。
+	if d.Start != "" {
+		bod, err := FormatBOD(d.Start)
+		if err == nil {
+			sb.WriteString(bod)
+		} else {
+			// ⚠️ **書けなかったときに黙って手合割へ倒さないこと** ——
+			// **別の局面の棋譜**になる。手合割の行が無い KIF は
+			// 「平手」と読まれるので、**理由をコメントとして残す**。
+			writeComment(&sb, "盤面図を書き出せませんでした: "+err.Error())
+		}
+	} else {
+		handicap := d.Handicap
+		if handicap == "" {
+			handicap = HirateHandicap
+		}
+		writeHeader("手合割", handicap)
 	}
-	writeHeader("手合割", handicap)
 
 	writeHeader("先手", d.Black)
 	writeHeader("後手", d.White)
