@@ -1,21 +1,21 @@
-// shogi_font: 日本語フォントから将棋駒の文字だけを抜き出し、
+// Package shogifont は日本語フォントから将棋駒の文字だけを抜き出し、
 // SFEN 表記 (P,L,N,S,G,B,R,K / 小文字 / +付き成駒) で表示できる
-// 軽量 TTF フォントを生成するツール。
-//
-//	go run . [-name FAMILY] {inputfont} [output.ttf]
-//
-// -name は生成フォントの family 名。元フォントを変えて焼き分けるときに使う
-// (Noto Serif JP→ShogiSFEN / Noto Sans JP→ShogiSFEN Gothic)。
+// 軽量 TTF フォントを焼く。
 //
 // 生成フォントでは <text>P</text> で「歩」が表示される。
 // 成駒 (+P など) は GSUB リガチャで「と」等のグリフに置換される。
-package main
+//
+// ⚠️ **生成物は元フォントの字形をそのまま持つ派生物。** 元フォントの権利表記は
+// name テーブルに引き継ぐが (readSrcNames)、**引き継いだからといって再配布して
+// よいわけではない。** 何を入力にしてよいかは呼び出し側の責任で、例えば ikkyoku は
+// 「端末に入っているフォントから、その端末で使うぶんだけ焼く」(再配布しない)
+// という前提で Build を呼んでいる。core が同梱するフォント (web/font*.js) の側は、
+// 派生物の再配布を認めるライセンスのものだけを焼いている (web/README.md)。
+package shogifont
 
 import (
-	"flag"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +25,192 @@ import (
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 )
+
+// DefaultFamily は生成フォントの既定の family 名 (CSS の font-family に出る名前)。
+const DefaultFamily = "ShogiSFEN"
+
+// Options は Build の指定。
+type Options struct {
+	// Family は生成フォントの family 名。空なら DefaultFamily。
+	//
+	// ⚠️ **元フォントを変えて焼くときは必ず変えること。** 同名で複数登録すると
+	// どれが当たるかブラウザ任せになり、切り替えが効かなくなる。
+	Family string
+
+	// Index はコレクション (TTC) の中の何番目の書体を使うか。
+	// 単独フォント (TTF / OTF) では 0 だけが有効。
+	//
+	// **書体ごとに別物として扱えること自体が要る** —— msmincho.ttc のように
+	// 1 ファイルに MS 明朝と MS P明朝が同居しているものがあり、
+	// 先頭決め打ちでは片方を選べない。
+	Index int
+}
+
+// Face は入力フォントに入っている書体 1 つ分の素性。
+//
+// **Missing が空かどうかが「焼けるか」の判定そのもの。** 端末に入っている
+// フォントの大半は駒の字を持たないので、選ばせる UI はこれを見て印を付ける。
+type Face struct {
+	Index     int    // コレクション内の位置 (Options.Index にそのまま渡せる)
+	Family    string // name ID 1 (en-US 優先)
+	SubFamily string // 2 (Regular / Bold など)
+	Full      string // 4
+
+	// LocalFamily / LocalSubFamily は**日本語の名前** (name テーブルの ja-JP)。
+	// 無ければ空。
+	//
+	// ⚠️ **選ばせる UI はこちらを優先すること。** 日本語フォントは英語名しか
+	// 出さないと別物に見える (「玉ねぎ楷書激無料版」が
+	// "Tamanegi Kaisho Geki FreeVer 7" になる)。
+	LocalFamily    string
+	LocalSubFamily string
+
+	// 元フォントの権利表記。⚠️ **空でも「制約が無い」ではない**
+	// (name テーブルに条項を持たないフォントは珍しくない)。
+	Copyright  string
+	Trademark  string
+	License    string
+	LicenseURL string
+
+	// Missing は Required のうちこのフォントに無い字。空なら Build できる。
+	Missing []rune
+}
+
+// Required は駒を描くのに要る字を返す。
+//
+// **公開してあるのは、選ばせる UI が「何が足りないか」を出せるようにするため。**
+// 空白と "+" は無くても合成する (synthPlus) ので入っていない。
+func Required() []rune {
+	rs := make([]rune, 0, len(basePieces)+len(promotedPieces)+len(altPieces))
+	for _, p := range basePieces {
+		rs = append(rs, p.kanji)
+	}
+	for _, p := range promotedPieces {
+		rs = append(rs, p.kanji)
+	}
+	for _, p := range altPieces {
+		rs = append(rs, p.kanji)
+	}
+	// 反転字 (左馬) の元は成駒の「馬」なので、上で既に入っている。
+	return rs
+}
+
+// Faces は入力フォント (TTF / OTF / TTC) に入っている書体を列挙する。
+//
+// **Build する前に呼べることが要点。** 焼いてみて初めて「字が無い」と分かるのでは、
+// 一覧に印を付けられない。
+func Faces(src []byte) ([]Face, error) {
+	coll, err := sfnt.ParseCollection(src)
+	if err != nil {
+		return nil, fmt.Errorf("フォントを読めません: %w", err)
+	}
+	req := Required()
+	faces := make([]Face, 0, coll.NumFonts())
+	for i := 0; i < coll.NumFonts(); i++ {
+		f, err := coll.Font(i)
+		if err != nil {
+			// **1 つ読めなくても他は返す。** コレクションの一部だけ扱えないことがある。
+			continue
+		}
+		var buf sfnt.Buffer
+		get := func(id sfnt.NameID) string {
+			s, err := f.Name(&buf, id)
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(s)
+		}
+		// 名前は自前で読んだ name テーブルを優先する（言語を選べるのはこちらだけ）。
+		// ⚠️ **読めなかったときは x/image の答えに落ちる** —— 名前が読めないことは
+		// フォントが使えないことを意味しない。
+		nm := readNames(src, i)
+		or := func(a, b string) string {
+			if a != "" {
+				return a
+			}
+			return b
+		}
+		en := func(id uint16, fallback string) string {
+			return or(nm.pick(id, langWindowsEnUS, langWindowsJaJP), or(fallback, nm.any(id)))
+		}
+		face := Face{
+			Index:          i,
+			Family:         en(nameIDFamily, get(sfnt.NameIDFamily)),
+			SubFamily:      en(nameIDSubFamily, get(sfnt.NameIDSubfamily)),
+			Full:           en(nameIDFullName, get(sfnt.NameIDFull)),
+			LocalFamily:    nm.pick(nameIDFamily, langWindowsJaJP),
+			LocalSubFamily: nm.pick(nameIDSubFamily, langWindowsJaJP),
+			Copyright:      en(nameIDCopyright, get(sfnt.NameIDCopyright)),
+			Trademark:      en(nameIDTrademark, get(sfnt.NameIDTrademark)),
+			License:        en(nameIDLicense, get(sfnt.NameIDLicense)),
+			LicenseURL:     en(nameIDLicenseURL, get(sfnt.NameIDLicenseURL)),
+		}
+		// 日本語名が英語名と同じなら持たない（UI が同じ文字を 2 回出さないように）。
+		if face.LocalFamily == face.Family {
+			face.LocalFamily = ""
+		}
+		if face.LocalSubFamily == face.SubFamily {
+			face.LocalSubFamily = ""
+		}
+		for _, r := range req {
+			gi, err := f.GlyphIndex(&buf, r)
+			if err != nil || gi == 0 {
+				face.Missing = append(face.Missing, r)
+			}
+		}
+		faces = append(faces, face)
+	}
+	if len(faces) == 0 {
+		return nil, fmt.Errorf("読める書体がありません")
+	}
+	return faces, nil
+}
+
+// Build は駒フォントを焼いて TTF のバイト列を返す。
+func Build(src []byte, opt Options) ([]byte, error) {
+	coll, err := sfnt.ParseCollection(src)
+	if err != nil {
+		return nil, fmt.Errorf("フォントを読めません: %w", err)
+	}
+	if opt.Index < 0 || opt.Index >= coll.NumFonts() {
+		return nil, fmt.Errorf("書体 %d はこのフォントにありません (%d 書体)", opt.Index, coll.NumFonts())
+	}
+	f, err := coll.Font(opt.Index)
+	if err != nil {
+		return nil, fmt.Errorf("書体 %d を読めません: %w", opt.Index, err)
+	}
+	family := opt.Family
+	if family == "" {
+		family = DefaultFamily
+	}
+
+	var buf sfnt.Buffer
+	upem := int(f.UnitsPerEm())
+	ppem := fixed.Int26_6(upem << 6)
+
+	// グリフ構成: 0=.notdef, 1=space, 2=plus, 3..10=基本駒, 11..16=成駒,
+	// 17=異体字(玉), 18=反転(左馬)
+	set, err := buildGlyphSet(func(r rune) (*glyph, error) {
+		return extract(f, &buf, r, ppem)
+	}, upem)
+	if err != nil {
+		return nil, err
+	}
+
+	met, err := f.Metrics(&buf, ppem, font.HintingNone)
+	if err != nil {
+		return nil, fmt.Errorf("メトリクスを読めません: %w", err)
+	}
+	return buildFont(set, fontInfo{
+		family:    family,
+		names:     readSrcNames(f, &buf),
+		upem:      upem,
+		ascent:    round26_6(met.Ascent),
+		descent:   round26_6(met.Descent), // 正の値 (下方向)
+		capHeight: round26_6(met.CapHeight),
+		xHeight:   round26_6(met.XHeight),
+	}), nil
+}
 
 // 駒と SFEN 文字の対応 (小文字=後手も同じグリフを割り当てる)
 var basePieces = []struct {
@@ -81,64 +267,6 @@ var mirroredPieces = []struct {
 type altFeature struct {
 	tag  string      // "ss01" など。FeatureList は昇順に並べる決まりなので後で整列する
 	subs [][2]uint16 // {置換元 GID, 置換先 GID}
-}
-
-func main() {
-	// -name は生成フォントの family 名。**元フォントを変えて焼くときは必ず変えること。**
-	// 同名で複数登録するとどれが当たるかブラウザ任せになり、切り替えが効かなくなる。
-	family := flag.String("name", "ShogiSFEN", "生成フォントの family 名")
-	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: shogi_font [-name FAMILY] {inputfont} [output.ttf]")
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-	if flag.NArg() < 1 {
-		flag.Usage()
-		os.Exit(1)
-	}
-	inPath := flag.Arg(0)
-	outPath := "shogi.ttf"
-	if flag.NArg() >= 2 {
-		outPath = flag.Arg(1)
-	}
-
-	data, err := os.ReadFile(inPath)
-	check(err)
-	coll, err := sfnt.ParseCollection(data)
-	check(err)
-	src, err := coll.Font(0)
-	check(err)
-
-	var buf sfnt.Buffer
-	upem := int(src.UnitsPerEm())
-	ppem := fixed.Int26_6(upem << 6)
-
-	// グリフ構成: 0=.notdef, 1=space, 2=plus, 3..10=基本駒, 11..16=成駒,
-	// 17=異体字(玉), 18=反転(左馬)
-	set, err := buildGlyphSet(func(r rune) (*glyph, error) {
-		return extract(src, &buf, r, ppem)
-	}, upem)
-	check(err)
-
-	met, err := src.Metrics(&buf, ppem, font.HintingNone)
-	check(err)
-	ascent := round26_6(met.Ascent)
-	descent := round26_6(met.Descent) // 正の値 (下方向)
-	capHeight := round26_6(met.CapHeight)
-	xHeight := round26_6(met.XHeight)
-
-	out := buildFont(set, fontInfo{
-		family:    *family,
-		names:     readSrcNames(src, &buf),
-		upem:      upem,
-		ascent:    ascent,
-		descent:   descent,
-		capHeight: capHeight,
-		xHeight:   xHeight,
-	})
-	check(os.WriteFile(outPath, out, 0o644))
-	fmt.Printf("%s を出力しました (family=%q, %d バイト, %d グリフ)\n",
-		outPath, *family, len(out), len(set.glyphs))
 }
 
 // glyphSource は 1 文字分のグリフを取り出す。テストが入力フォントを用意せずに
@@ -261,17 +389,6 @@ func buildGlyphSet(load glyphSource, upem int) (*fontSet, error) {
 	sort.Slice(alts, func(i, j int) bool { return alts[i].tag < alts[j].tag })
 
 	return &fontSet{glyphs: glyphs, cmap: cmapMap, ligs: ligs, alts: alts, plusGID: gidPlus}, nil
-}
-
-func check(err error) {
-	if err != nil {
-		fatal("%v", err)
-	}
-}
-
-func fatal(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
-	os.Exit(1)
 }
 
 // ---- グリフ抽出 ----

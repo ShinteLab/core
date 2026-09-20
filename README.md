@@ -30,7 +30,10 @@ p,l,n,s,g,b,r,k,+p,+l,+n,+s,+b,+r
 Go言語で作成し、
 
 ```
-shogi_font.go {inputfont}
+go run . {inputfont} [output.ttf]
 ```
 
-で新しいフォントを出力する
+で新しいフォントを出力する。中身は `shogifont` パッケージ
+（`github.com/ShinteLab/core/shogifont`）で、ルートはその薄い CLI。
+ライブラリとして呼べば端末に入っているフォントからその場で焼ける
+（ikkyoku の「駒の字」設定がそれ）。

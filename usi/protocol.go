@@ -240,6 +240,62 @@ func ParseBestmove(line string) (move, ponder string, ok bool) {
 	return move, ponder, true
 }
 
+// Checkmate は checkmate 行の種類（詰み探索の答え。2026-09-12）。
+type Checkmate int
+
+const (
+	// CheckmateFound は詰みが見つかった（Moves に手順が入る）。
+	CheckmateFound Checkmate = iota
+	// CheckmateNone は詰みが無い（`checkmate nomate`）。
+	CheckmateNone
+	// CheckmateTimeout は時間内に解けなかった（`checkmate timeout`）。
+	//
+	// ⚠️ **「詰みなし」ではない。** 分からなかっただけなので、
+	// **同じ局面をもっと長い時間で投げ直せば答えが変わる。**
+	CheckmateTimeout
+	// CheckmateNotImplemented は詰み探索に対応していない
+	// （`checkmate notimplemented`）。**エンジンを選び直す以外に手が無い。**
+	CheckmateNotImplemented
+)
+
+// ParseCheckmate は checkmate 行を読む（`go mate` の答え）。checkmate 行でなければ ok=false。
+//
+// **USI の詰み探索の答えは 4 通り**で、**どれも「checkmate」で始まる 1 行**:
+//
+//	checkmate <手順…>      詰みあり（攻方・玉方が交互に並ぶ USI 表記）
+//	checkmate              **手順なし＝既に詰んでいる**（下記）
+//	checkmate nomate       詰みなし
+//	checkmate timeout      時間内に解けなかった（**詰みなしではない**）
+//	checkmate notimplemented  詰み探索に対応していない
+//
+// ⚠️ **手順を 1 手だけ返すエンジンも、全部返すエンジンもある**ので、
+// **長さで意味を変えないこと**（`nomate` などの語だけで分ける）。
+//
+// ⚠️ **語が「checkmate」だけの行を捨てないこと**（2026-09-12 に実機で踏んだ）。
+// **既に詰んでいる局面**に `go mate` を送ると、KomoringHeights は
+// **手順の無い `checkmate` を返す**。2 語以上を要求していたせいでこの行を
+// 読み飛ばし、**返事を待ち続けて時間切れになっていた**（「エンジンが checkmate を
+// 返しません」）。**詰みあり・手順 0 手**として返し、意味付けは呼び出し側に任せる。
+func ParseCheckmate(line string) (kind Checkmate, moves []string, ok bool) {
+	f := strings.Fields(line)
+	if len(f) == 0 || f[0] != "checkmate" {
+		return 0, nil, false
+	}
+	if len(f) == 1 {
+		// 手順なし＝既に詰んでいる（上の ⚠️）。
+		return CheckmateFound, nil, true
+	}
+	switch f[1] {
+	case "nomate":
+		return CheckmateNone, nil, true
+	case "timeout":
+		return CheckmateTimeout, nil, true
+	case "notimplemented":
+		return CheckmateNotImplemented, nil, true
+	}
+	return CheckmateFound, f[1:], true
+}
+
 // nextInt は f[i+1] を整数として読み、進めた添字を返す。
 // 読めなければ値は 0 のまま、添字も進めない（知らない形は読み飛ばす）。
 func nextInt(f []string, i int) (int, int) {

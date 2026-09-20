@@ -14,7 +14,8 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 | `usi/client/` | `github.com/ShinteLab/core/usi/client` | **USI エンジンと話すクライアント側**（＝将棋 UI 側）。セッション管理と `os/exec` での起動。**ホットパスに乗らない層なので親と分けてある** |
 | `kifu/` | `github.com/ShinteLab/core/kifu` | KIF 仕様（指し手行・終局判定・KIF ドキュメント組み立て）と**USI の手 → 日本語表記**（盤が要るのでここ。`usi` ではない） |
 | `web/` | `@shinte/web`（JS）/ `github.com/ShinteLab/core/web`（Go embed） | 共有フロント。`<shogi-board>` と SFEN/USI/KIF の JS ロジック。詳細は `web/README.md` |
-| root (`package main`) | — | 将棋駒表示用の軽量フォント生成ツール（旧 `board` / 旧モジュール名 `shogifont`） |
+| `shogifont/` | `github.com/ShinteLab/core/shogifont` | **将棋駒表示用の軽量フォントを焼くライブラリ**（`Faces` / `Build`） |
+| root (`package main`) | — | 上の**薄い CLI**（旧 `board` / 旧モジュール名 `shogifont`） |
 
 `*.html`（`test.html` / `board.html` / `move.html`）はフォントと盤表示の動作確認用。
 
@@ -45,9 +46,10 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 
 ```powershell
 go test ./sfen ./usi/... ./kifu   # 仕様パッケージのテスト
-go test .                     # フォント生成ツール（入力フォント不要）
+go test ./shogifont           # フォント生成ライブラリ（入力フォント不要）
 node web/test.mjs             # JS 側ロジックのテスト
 go run . {inputfont} [output.ttf]        # フォント生成（core/ から）
+go run . -list {inputfont}               # 書体の一覧（TTC の中身・字が足りるか）
 ```
 
 HTML の確認は ES module を読むため **HTTP 配信が必要**（`test.html` のみ `file://` 可）:
@@ -135,6 +137,7 @@ engine の内部座標 (x,y in 1..9) とは別物。混同しないこと。
 | `Exec(ctx, path, args...)` | 実行ファイルを起こして `Transport` を返す。**作業ディレクトリは実行ファイルの場所**（評価関数・定跡を相対パスで読むエンジンが多い） |
 | `Open(ctx, t, options)` | `usi` → `usiok` → **`setoption`** → `isready` → `readyok`。`ID` / `Author` / `Options`（宣言）/ `Applied`（送った内容）を持つ |
 | `Session.Analyze(ctx, sfen, opt, info)` | `position` → `go infinite` → info… → `bestmove` |
+| `Session.Mate(ctx, sfen, opt, info)` | **詰み探索**（2026-09-12）。`position` → `go mate` → info… → `checkmate`。答えは 4 通り（詰みあり / なし / **時間切れ** / 非対応） |
 | `Session.NewGame()` | `usinewgame`。**`readyok` のあと、最初の `position` の前**（Open では送らない） |
 | `Session.SetOption(name, value)` / `Close()` | |
 
@@ -156,6 +159,24 @@ engine の内部座標 (x,y in 1..9) とは別物。混同しないこと。
   指し手を追いかけるあいだは送らない（送るたびに置換表が捨てられる）
 - ⚠️ **`go movetime` を送らない。** 解釈しないエンジンがある（自作 `engine` がそれ）。
   **常に `go infinite` で投げ、期限が来たらこちらが `stop` を送る**
+- ⚠️ **詰み探索だけは逆で、`go mate <ms>` と時間を伝える**（`Mate`。2026-09-12）。
+  **時間切れは「詰みなし」ではない**ので、**エンジン自身に「timeout」と言わせる**
+  ほうが正しい（こちらが stop で切ると、詰みが無いのか分からなかったのかが消える）
+- ⚠️ **語が「checkmate」だけの行を捨てないこと**（2026-09-12 に実機で踏んだ）。
+  **既に詰んでいる局面**に `go mate` を送ると、KomoringHeights は**手順の無い
+  `checkmate`** を返す。2 語以上を要求していたせいで読み飛ばし、**返事を待ち続けて
+  時間切れ**になっていた（画面には「エンジンが checkmate を返しません」と出た）
+- ⚠️ **答えを待つ余裕は短く**（`MateGrace`。3 秒）。答えないエンジンに当たったときの
+  待ち時間がそのままこれで決まる —— **3 秒の詰み探索で 20 秒待たされて「返しません」**
+  では、何が起きたのか分からない
+- ⚠️ **詰み探索は `bestmove` でも終わる。** USI の仕様は `checkmate` だが、
+  **やねうら王系は `go mate` に `bestmove <手>` を返す**（2026-09-12 に実測）。
+  **両方を終わりの合図として扱うこと** —— 片方しか見ていないと、相手によっては
+  **黙って返ってこない**（`bestmove resign` は「詰みなし」）
+- ⚠️ **詰将棋エンジンは通常の `go` に答えないことがある**（KomoringHeights は
+  `bestmove resign` を返す。実測）。**同じエンジンを通常解析にも使えると思わないこと**
+- ⚠️ **`Analyze` と `Mate` を 1 つに畳まないこと。** 答えの形がそもそも違う
+  （最善手と評価値 / 詰むか否かとその手順）
 - ⚠️ **探索を始める前に、前の探索の残りを捨てる**（`drain`）。bestmove のあとにも info を
   吐くエンジンがあり、溜めたままだと前の局面の評価値を今の局面のものとして渡すうえ、
   **溜まりきるとエンジンの書き込みが詰まって `stop` にも応答できなくなる**（実際に固まった）
@@ -180,13 +201,66 @@ KIF 形式（将棋の棋譜テキスト）の組み立て。スクレイピン�
 | `FormatSpend` / `FormatTotal` / `FormatTimes` | 消費時間欄 `( 4:00/01:00:00)` の組み立て |
 | `FormatTimeLimit` | 持ち時間ヘッダ（`各8時間` / `各25分`） |
 | `Move` / `Document` | 1手 / 1局分。`Document.String()` でヘッダ付き KIF を生成 |
-| `Parse(text)` | KIF テキスト → `Document`（読み取り） |
+| `Parse(text)` | KIF テキスト → `Document`（読み取り）。**指し手 0 手はエラーにしない** |
+| `Document.Empty()` | ヘッダも指し手も取れなかった（＝そもそも KIF ではない） |
 | `Document.EndMark()` | 最終手が終局ならその名称 |
 | `NewNotation(sfen)` / `Notation.Next(usi)` | **USI の手 → 日本語表記**（`"8h2b+"` → `"▲２二角成"`）。下記 |
 | `FormatMoves(sfen, moves)` | 読み筋（USI の並び）をまとめて日本語表記に |
 | `MoveText` | 1 手の表記。`Name`/`FromX`/`FromY` はそのまま `kifu.Move` に入る |
 | `NewDecoder()` / `Decoder.Next(m)` / `DecodeMoves(moves)` | **KIF の指し手 → USI**（`"２二角成"(88)` → `"8h2b+"`）。下記 |
-| `StartSFEN(handicap)` / `Document.StartSFEN()` | **手合割 → 初期局面の SFEN**（`decode.go`） |
+| `StartSFEN(handicap)` / `Document.StartSFEN()` | **手合割 → 初期局面の SFEN**（`decode.go`）。⚠️ **盤面図（`Document.Start`）があればそちらが勝つ** |
+| `FormatBOD(sfen)` / `ParseBOD(lines)` / `HasBOD(text)` | **盤面図**（途中の局面から始まる棋譜。`bod.go`）。下記 |
+
+#### 指し手が 0 手でもエラーにしない
+
+中継サイトは**対局開始前から棋譜を配信している**（ヘッダだけで指し手が無い `.kif`）。
+「1 手も無い」は読み取りの失敗ではなく、まだ指されていないという事実なので
+`Parse` はそのまま `Document` を返す。
+
+**「そもそも KIF ではない」の判定は手数ではなく `Document.Empty()` で行う**
+（HTML やただの文章はヘッダも指し手も取れないので `true`）。
+指し手が要る用途（`ikkyoku` の棋譜貼り付けなど）は呼び出し側で
+`len(doc.Moves) == 0` を弾くこと。
+
+### 盤面図（BOD。`bod.go`）— **2026-09-16**
+
+**KIF は本来「手合割 ＋ 初手からの指し手」でしか局面を表せない。** 途中の局面から
+始まる棋譜（撮った中継の 1 局面・詰将棋・次の一手）はそれでは書けないので、
+KIF には**盤面図**という書き方がある。
+
+```
+後手の持駒：なし
+  ９ ８ ７ ６ ５ ４ ３ ２ １
++---------------------------+
+|v香v桂v銀v金v玉v金v銀v桂v香|一
+（…9 段…）
++---------------------------+
+先手の持駒：なし
+後手番
+```
+
+`Document.Start`（完全形 SFEN）に入れると `String()` が盤面図を書き、
+`Parse()` は盤面図を読んで `Start` に入れる。利用側は `ikkyoku`
+（**撮った局面から始めた検討を棚に登録する**）。
+
+- ⚠️ **1 マスは必ず 2 文字**（`v歩` / ` 歩` / ` ・`）。だから成駒は**1 文字**
+  （と杏圭全馬龍）で書く —— 指し手の表記（成香・成桂・成銀）を持ち込むと
+  **桁がずれて盤が崩れる**
+- ⚠️ **盤面図があるなら手合割は書かない。** 両方あると、**読み手によって別の
+  局面になる**（どちらを正とするかは書かれていない）。`StartSFEN()` も
+  盤面図を優先する
+- ⚠️ **盤面図が読めなければ `Parse` はエラーにすること。** **黙って手合割へ
+  倒さない** —— 盤面図が書いてある以上、手合割の初期局面はその棋譜の局面では
+  ない。倒すと「平手の初形に途中の手順が乗った別の対局」として読めてしまい、
+  **棋譜としては通るので画面では気づけない**
+- ⚠️ **手数は書けない**（盤面図に欄が無い）。`ParseBOD` は必ず 1 を返す。
+  **推測しないこと**
+- ⚠️ **手番の行は後手番のときだけ書く**（先手番は KIF の既定）
+- ⚠️ **読むときは方言を広く受ける**（上手／下手・`手番：後手`・算用数字・
+  `竜`/`王`・半角区切り）。**書くときは 1 通りに揃える**
+- ⚠️ **駒台の玉は落ちる**（SFEN で表せない）。盤面図にそう書いてあっても消える
+- **JS 側（`web/kifu.js`）に対応物は無い。** あちらは KIF を読み書きしておらず
+  （行の整形と読売用の組み立てだけ）、**揃える対象外**
 
 ### KIF の指し手 → USI（`decode.go`）
 
@@ -261,8 +335,21 @@ t, _ = n.Next("3a2b")     // t.Text == "△同　銀"
   正規表現一発にすると `同　歩` で壊れる
 - **変化（`変化：N手`）は未対応**。そこで読み取りを打ち切り本譜のみを返す。
   分岐を扱うなら `Document` にツリー表現を足すところから必要
-- コメント行（`*`）、`#` 行、`まで～手で…` の結果行は読み飛ばす
+- コメント行（`*`）は**直前の手のコメントとして読む**（後述）。
+  `#` 行、`まで～手で…` の結果行は読み飛ばす
 - 解釈できない行は落とさず読み飛ばす（KIF は方言が多いため）
+
+### コメント（`*` 行）
+
+`Move.Comment` と `Document.Comment` に持つ。複数行は `"\n"` で連結し、
+`String()` が1行ずつ `*` を付け直す。
+
+- **KIF ではコメントは注釈する手の「直後」に置く。** 手の前ではない
+- 初手より前の `*` 行は初期局面のコメント（`Document.Comment`）。列ヘッダの直後に出す。
+  読売のペイロードなら `num:0`（指し手ではないメタ情報要素）のコメントがここに来る
+- **`#` 行はコメントではない。** 連盟の `.kif` の `# --- Kifu for Windows ...` が
+  コメントとして混ざらないよう分けてある
+- `Empty()` はコメントを見ない。コメントだけの入力は「KIF ではない」まま
 
 ### 消費時間
 
@@ -281,19 +368,48 @@ t, _ = n.Next("3a2b")     // t.Text == "△同　銀"
   一方で `５三銀打` のような通常の打ち手を終局と誤判定しないこと（両方向をテストで固定済み）。
 - ヘッダ付きドキュメントの組み立て（`Document`）は Go 側にのみある。
   指し手行の書式（`FormatLine` / `TerminalMarker`）は JS 側 `web/kifu.js` と揃えること。
+  **コメント（`*` 行）と盤面図（`bod.go`）は `Document` 側の機能**なので
+  JS 側には対応物が無い（揃える対象外）。
 
-## フォント生成ツール（root, `package main`）
+## フォント生成（`shogifont/` と、その CLI である root）
 
 日本語フォントから駒の 14 文字だけを抜き出し、SFEN 表記
 (`P,L,N,S,G,B,R,K` / 小文字 / `+` 付き成駒) で表示できる TTF を生成する。
 
-- 入力: TTF / TTC / OTF（TTC はコレクション先頭のフォントを使用）
+- 入力: TTF / TTC / OTF
 - 出力: 省略時 `shogi.ttf`。19 グリフのみの軽量 TTF（Noto Serif JP 6MB → 約 13KB）
-- 実装は `shogi_font.go` の 1 ファイル。依存は `golang.org/x/image`（font/sfnt）のみ
+- 実装は `shogifont/shogifont.go` の 1 ファイル。依存は `golang.org/x/image`（font/sfnt）のみ
 
 ```powershell
-go run . [-name FAMILY] {inputfont} [output.ttf]
+go run . [-name FAMILY] [-index N] {inputfont} [output.ttf]
+go run . -list {inputfont}      # 書体の一覧（TTC の中身・字が足りるか）
 ```
+
+### ⚠️ ライブラリと CLI を分けてある（2026-08-16）
+
+**中身は `shogifont` パッケージで、root の `package main` はその薄い CLI でしかない。**
+以前はルートの `package main` に全部入っており、**`go run` で叩くことしかできなかった。**
+
+- **理由は ikkyoku の「端末に入っているフォントから駒の字を作る」。** ライセンスの都合で
+  同梱できるフォントが限られる（下記）ので、**アプリが動いている端末で焼いて、その端末で
+  だけ使う**（再配布しない）という経路が要る。**そのためには import できる入口が要る**
+- ⚠️ **ロジックを root に戻さないこと。** 戻すと import する側が消える
+- ⚠️ **`Faces` は `Build` の前に呼べること自体が要点。** 端末のフォントは大半が駒の字を
+  持たないので、**焼いてみて初めて分かる**のでは一覧に印を付けられない。
+  何が足りないかは `Face.Missing`（要る字は `Required()`）
+- ⚠️ **name テーブルだけは自前で読んでいる**（`names.go`）。`x/image` の `Font.Name` は
+  **言語を選べず、name テーブルに並んでいる順で最初に当たったものを返す** ——
+  同じ日本語フォントでも游明朝は `"Yu Mincho"`、玉ねぎ楷書は
+  `"Tamanegi Kaisho Geki FreeVer 7"` が返る、という具合に並び順次第で言語が変わる。
+  **選ばせる一覧が英語名になったり日本語名になったりして揃わない**ので、
+  `Face.LocalFamily`（ja-JP）と `Face.Family`（en-US 優先）を分けて持つ。
+  ⚠️ **日本語名が無いときに英語名へ倒さないこと**（`LocalFamily` は空のまま。
+  倒すと呼び出し側が「日本語名がある」と誤解する）。読めなければ `x/image` の答えに落ちる
+- **`Options.Index` は TTC の中の書体番号。** 以前は先頭決め打ちだったが、
+  `msmincho.ttc` のように 1 ファイルに MS 明朝と MS P明朝が同居しているものがあり、
+  それでは片方を選べない
+- ⚠️ **`Build` は `os.Exit` しない**（旧 `check`/`fatal` は CLI 側へ移した）。
+  ライブラリとして呼ぶ側がエラーを画面に出す
 
 ### 元フォントを変えて焼き分ける
 
@@ -306,7 +422,7 @@ go run . [-name FAMILY] {inputfont} [output.ttf]
 | `ShogiSFEN`（既定） | Noto Serif JP `NotoSerifJP-VF.ttf`（明朝） | **SIL OFL 1.1** |
 | `ShogiSFEN Gothic` | Noto Sans JP `NotoSansJP-VF.ttf`（ゴシック） | **SIL OFL 1.1** |
 
-⚠️ **足してよいのは、派生物の作成と再配布を認めるライセンスのフォントだけ。**
+⚠️ **`web/` に足してよいのは、派生物の作成と再配布を認めるライセンスのフォントだけ。**
 生成物は元フォントの字形をそのまま持つ派生物を配る行為で、**「手元に入っているから
 使える」ではない。** 実際に 3 つ外している:
 
@@ -326,7 +442,18 @@ go run . [-name FAMILY] {inputfont} [output.ttf]
   `fonttools varLib.instancer` で wght=400 を実体化してから渡す
 - 生成物は元フォントの copyright / trademark / license / licenseURL を**引き継ぐ**
   （`readSrcNames`）。派生物なので落とさない。焼き直しの手順は `web/README.md` を見ること
+- **OFL 1.1 の全文は `web/OFL.txt`**（埋め込んだフォントの由来と権利表記も先頭に記載）。
+  ⚠️ **配布物から外さないこと。** OFL がライセンス文の同梱を求めるので、
+  `web/package.json` の `files` と `web/assets.go` の `//go:embed` の両方に入れてある
 - 既定以外は `web/` で**使う画面だけが読み込むモジュール**に分けてある（`web/README.md`）
+
+⚠️ **上の制約は「core が配るフォント」の話。「端末で焼いて自分で使う」は別の話。**
+ikkyoku が `shogifont` を import して端末のフォントから駒の字を作るのは、
+**再配布を伴わない**（生成物はその端末から出ない）。**この 2 つを混同しないこと** ——
+`web/font*.js` に足してよいかの判断基準を、端末側の生成にまで持ち込むと
+**「手元の游明朝で駒を表示する」という正当な使い方まで塞ぐ**ことになる。
+逆に、**端末で焼いたフォントを配ってよいわけでもない**（そちらは元フォントの条項が効く）。
+`shogifont` はどちらの判断もしない —— **入力に何を渡してよいかは呼び出し側の責任。**
 
 ### 文字マッピング (cmap)
 
@@ -420,9 +547,10 @@ HTML の属性名は大文字小文字を区別しない。**
 
 ### 検証方法
 
-1. `go test .`（`shogi_font_test.go`）。cmap の割り当て・リガチャ表・反転の座標・
-   生成した TTF の再パースまでを見る。**入力フォントを要求しない**（下記）
+1. `go test ./shogifont`（`shogifont/shogifont_test.go`）。cmap の割り当て・リガチャ表・
+   反転の座標・生成した TTF の再パースまでを見る。**入力フォントを要求しない**（下記）
 2. `core/` で `go run . C:\Windows\Fonts\yumin.ttf` で生成
+   （⚠️ **これは動作確認。游明朝の派生物は配れない** ——「元フォントを変えて焼き分ける」参照）
 3. 生成物を sfnt で再パースし、`PLNSGBRKplnsgbrk+` と漢字のグリフ索引・輪郭・送り幅を確認
    （`玉` が `王`/`K` と**別の GID** になっていること。左馬は `馬` の bbox を
    `[xmin,xmax]` → `[adv-xmax, adv-xmin]` に折り返した値になる）
@@ -445,9 +573,11 @@ HTML の属性名は大文字小文字を区別しない。**
 
 ### フォントを作り直したら
 
-`web/font.js` / `web/font-ounen.js` / `web/font-doheta.js`（base64 data URL、自動生成）も
-更新する。**3 つとも焼き直して `node web/gen-fonts.mjs` を通すこと。**
-手順は `web/README.md` を参照。
+`web/font.js` / `web/font-gothic.js`（base64 data URL、自動生成）も更新する。
+**2 つとも焼き直して `node web/gen-fonts.mjs` を通すこと。** 手順は `web/README.md` を参照。
+
+⚠️ **ikkyoku が端末で焼くフォントはここに関係しない**（ディスクにも残らず、
+その端末の webview に `@font-face` で流すだけ）。**焼き直しの手順に混ぜないこと。**
 
 ## HTML デモ
 

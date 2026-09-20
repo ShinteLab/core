@@ -11,5 +11,9 @@ package web
 
 import "embed"
 
-//go:embed *.js
+// ⚠️ **OFL.txt を外さないこと。** font.js / font-gothic.js には SIL OFL 1.1 の
+// フォントから作った派生フォントが埋まっており、OFL はライセンス文の同梱を求める。
+// これを配信する側が条件を満たせるよう、資産と一緒に持たせてある。
+//
+//go:embed *.js OFL.txt
 var Assets embed.FS

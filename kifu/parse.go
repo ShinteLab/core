@@ -1,7 +1,6 @@
 package kifu
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -15,9 +14,26 @@ import (
 // **変化(`変化：N手`)は未対応**で、そこで読み取りを打ち切る(本譜のみを取る)。
 // kicho は棋譜を保存して外部ツールへ渡すのが目的なので、本譜が取れれば足りる。
 // 分岐を扱うなら Document 側にツリー表現を足すところから必要になる。
+//
+// **指し手が 0 手でもエラーにしない**(finish を参照)。error を返す余地は
+// 将来の解析エラーのために残してあるが、現状は常に nil。
 func Parse(s string) (Document, error) {
 	var d Document
 	lines := strings.Split(normalizeNewlines(stripBOM(s)), "\n")
+
+	// **盤面図があれば開始局面はそちら**（2026-09-16）。手合割では表せない
+	// 途中の局面から始まる棋譜がこの形で書かれる。
+	//
+	// ⚠️ **読めなかったら黙って手合割へ倒さないこと** —— 盤面図が書いてある
+	// 以上、**手合割の初期局面はその棋譜の局面ではない**。落とすと
+	// 「平手の初形に途中の手順が乗った別の対局」として読めてしまう。
+	if HasBOD(s) {
+		start, err := ParseBOD(lines)
+		if err != nil {
+			return Document{}, err
+		}
+		d.Start = start
+	}
 
 	sawTime := false
 	for _, raw := range lines {
@@ -25,9 +41,18 @@ func Parse(s string) (Document, error) {
 		if line == "" {
 			continue
 		}
+		// 盤面図の行は上で読んである。**ここでは読み飛ばす** ——
+		// 持駒の行は全角コロンを持つのでヘッダとして拾われてしまう。
+		if isBODLine(line) {
+			continue
+		}
 		switch {
-		case strings.HasPrefix(line, "*"), strings.HasPrefix(line, "#"):
-			// コメント・メタ行
+		case strings.HasPrefix(line, "*"):
+			// コメント行。直前の手に付ける(まだ1手も無ければ初期局面のコメント)。
+			addComment(&d, strings.TrimPrefix(line, "*"))
+			continue
+		case strings.HasPrefix(line, "#"):
+			// `# --- Kifu for Windows ...` のようなメタ行。コメントではない。
 			continue
 		case strings.HasPrefix(line, "手数"):
 			// 指し手の列ヘッダ
@@ -59,12 +84,54 @@ func Parse(s string) (Document, error) {
 	return finish(d, sawTime)
 }
 
+// finish は読み取り結果を仕上げる。
+//
+// **指し手が 0 手でもエラーにしない。** 対局前の中継棋譜(ヘッダだけで
+// 指し手がまだ無い .kif)が正当に存在するため。「1 手も無い」は
+// 読み取りの失敗ではなく、まだ指されていないという事実。
+// 棋譜として成立しているかの判断は呼び出し側が行う。
 func finish(d Document, sawTime bool) (Document, error) {
-	if len(d.Moves) == 0 {
-		return Document{}, fmt.Errorf("kifu: 指し手が1手も読み取れませんでした")
-	}
 	d.ShowTime = sawTime
 	return d, nil
+}
+
+// isBODLine は盤面図の一部の行か（`Parse` の本体では読み飛ばす）。
+//
+// ⚠️ **持駒の行を落とすこと。** 「後手の持駒：なし」は全角コロンを持つので、
+// 外さないと**ヘッダとして拾われる**（今は知らないキーなので実害は出ないが、
+// 方言を足したときに黙って噛み合う）。
+func isBODLine(line string) bool {
+	switch {
+	case strings.HasPrefix(line, "+---"), strings.HasPrefix(line, "|"):
+		return true
+	case strings.TrimSpace(line) == strings.TrimSpace(bodFileHeader):
+		return true
+	case line == "後手番", line == "先手番", line == "上手番", line == "下手番":
+		return true
+	}
+	key, _, ok := splitHeader(line)
+	if !ok {
+		return false
+	}
+	switch key {
+	case "後手の持駒", "先手の持駒", "上手の持駒", "下手の持駒", "手番":
+		return true
+	}
+	return false
+}
+
+// addComment は `*` 行の中身を直前の手のコメントに足す。
+// 指し手より前の `*` 行は初期局面のコメントとして Document 側に積む。
+// 複数行にわたるコメントは "\n" で連結する(String が1行ずつ `*` を付け直す)。
+func addComment(d *Document, text string) {
+	dst := &d.Comment
+	if n := len(d.Moves); n > 0 {
+		dst = &d.Moves[n-1].Comment
+	}
+	if *dst != "" {
+		*dst += "\n"
+	}
+	*dst += text
 }
 
 // utf8BOM は UTF-8 のバイトオーダーマーク。

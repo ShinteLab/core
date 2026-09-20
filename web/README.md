@@ -18,7 +18,8 @@ SFEN/USI の共通ロジックを提供する。**ビルド不要の素の ESM J
 | `kifu.js` | KIF 変換(`formatKifuLine`/`stripMoveModifiers`/`terminalMarker`・読売竜王戦 `buildYomiuriHirateKifu`)。Go 側の対応実装は `github.com/ShinteLab/core/kifu`(そちらがヘッダ付きドキュメント組み立ても持つ)。指し手行の書式は両者で揃えること |
 | `font.js` | 既定の駒フォント(Noto Serif JP ベース)を base64 data URL 化したもの(自動生成)と `ensureShogiFont()` |
 | `font-gothic.js` | 別の元フォントで焼いた駒フォント(Noto Sans JP)。**import した画面だけが読み込む**(下記) |
-| `gen-fonts.mjs` | 上 3 つの base64 を `core/*.ttf` から焼き直す生成器。`.mjs` なのは `assets.go` の `//go:embed *.js` に拾わせないため |
+| `gen-fonts.mjs` | 上の base64 を `core/*.ttf` から焼き直す生成器。`.mjs` なのは `assets.go` の `//go:embed *.js` に拾わせないため |
+| `OFL.txt` | 埋め込んだ駒フォントの由来・権利表記と **SIL OFL 1.1 の全文**。⚠️ 配布物から外さないこと |
 | `index.js` | 再エクスポート(これを import すれば `<shogi-board>` も登録される) |
 | `index.d.ts` | TypeScript 型定義(prokishi など TS 消費側向け) |
 | `assets.go` | `package web`。`//go:embed *.js` で JS 資産を `embed.FS`(`web.Assets`)として公開。Go サーバから配信するため |
@@ -113,6 +114,27 @@ shogi-board { --shogi-font: "ShogiSFEN Gothic"; }
   バイナリが増える。要らなければ embed の対象を絞ること
 - 玉・左馬（下記）は**どのフォントでも効く**。同じ生成ツールで焼いているので
   `ss01` / `ss02` は 3 つとも入っている
+
+### 駒の字の色と濃さを変える
+
+`--shogi-piece-color`（既定 `#1a1a1a`）。**字の強いフォント（太い明朝・毛筆）は
+少し薄いほうが盤に映える**ので、色と濃さをここで変えられる。
+
+```css
+shogi-board { --shogi-piece-color: rgba(26, 26, 26, 0.75); }
+```
+
+- ⚠️ **alpha 込みの 1 つの値**にしてある。濃さ用のプロパティ
+  （`--shogi-piece-opacity` のようなもの）は**持たない** —— 別々にすると、
+  HTML で駒を描く利用側（駒台のチップなど）は element の `opacity` を
+  使うことになり、**背景ごと透ける**
+- ⚠️ **`fill` を直に当てても効かない。** シャドウ内の `text.piece { fill: ... }`
+  という宣言が、外から継承してきた値に勝つため（`--shogi-font` と同じで、
+  **カスタムプロパティだけがシャドウの中まで届く**）
+- **`<shogi-hand>` も同じ 2 つを見る**（`--shogi-font` / `--shogi-piece-color`）。
+  ⚠️ 以前はあちらだけ family を直書きしており、**盤のフォントを差し替えると
+  持ち駒だけ既定の字のまま**になっていた（2026-08-16 に直した）
+- **盤（`#f3c877`）・枠・座標の色は変えられない。** ここは駒の字だけ
 
 ### 駒の字を玉・左馬にする
 
@@ -242,7 +264,9 @@ SIL Open Font License, Version 1.1  —  http://scripts.sil.org/OFL
   OFL は派生物の作成・再配布を認めるが、**ライセンス文の同梱**と
   **Reserved Font Name を使わないこと**が条件。family を `ShogiSFEN*` にしてあるのは後者のため
   （Noto Sans JP は `Source` が Reserved Font Name）
-- ⚠️ **OFL 1.1 の全文をまだリポジトリに置いていない。** 公開前に入れること
+- **OFL 1.1 の全文は `web/OFL.txt`。** 埋め込んだフォントの由来と権利表記も先頭に書いてある。
+  ⚠️ **配布物から外さないこと**（OFL の条件）。`package.json` の `files` と
+  `assets.go` の `//go:embed` にも入れてあるので、npm 配布でも Go 配信でも一緒に付いて回る
 
 ## 今後
 

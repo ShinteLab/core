@@ -247,11 +247,47 @@ func TestParseBOMAndCRLF(t *testing.T) {
 	}
 }
 
-func TestParseRejectsNonKifu(t *testing.T) {
+// KIF でないものを読ませたらヘッダも指し手も取れず Empty になる。
+// Parse 自体はエラーにしない(指し手 0 手は対局前として正当なため)。
+func TestParseNonKifuIsEmpty(t *testing.T) {
 	for _, src := range []string{"", "   ", "これは棋譜ではありません", "<html><body>404</body></html>"} {
-		if _, err := Parse(src); err == nil {
-			t.Errorf("Parse(%q) succeeded, want error", src)
+		d, err := Parse(src)
+		if err != nil {
+			t.Errorf("Parse(%q) = %v", src, err)
+			continue
 		}
+		if !d.Empty() {
+			t.Errorf("Parse(%q).Empty() = false, want true", src)
+		}
+	}
+}
+
+// 対局前の中継棋譜。ヘッダだけで指し手が無くてもエラーにしない。
+func TestParseHeaderOnly(t *testing.T) {
+	src := `# --- Kifu for Windows Pro V7.21 棋譜ファイル ---
+開始日時：2026/08/18 09:00
+棋戦：第67期王位戦七番勝負第４局
+手合割：平手
+先手：伊藤匠二冠
+後手：藤井聡太王位
+手数----指手---------消費時間--
+*対局前のコメント
+`
+	d, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Moves) != 0 {
+		t.Errorf("len(Moves) = %d, want 0", len(d.Moves))
+	}
+	if d.Empty() {
+		t.Error("Empty() = true, want false (ヘッダは読めている)")
+	}
+	if d.Black != "伊藤匠二冠" || d.White != "藤井聡太王位" {
+		t.Errorf("Black=%q White=%q", d.Black, d.White)
+	}
+	if d.EndMark() != "" {
+		t.Errorf("EndMark() = %q, want empty", d.EndMark())
 	}
 }
 

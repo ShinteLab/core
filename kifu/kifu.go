@@ -91,6 +91,9 @@ type Move struct {
 	// Spend はこの手の消費時間。Document.ShowTime が true のときだけ出力する。
 	// 取得元によっては分単位までしか分からない(読売の棋譜は 60 秒刻み)。
 	Spend time.Duration
+	// Comment はこの手に付くコメント(KIF の `*` 行)。複数行なら "\n" で連結する。
+	// KIF ではコメントは**注釈する手の直後**に置く。
+	Comment string
 }
 
 // FormatSpend は消費時間を KIF の "分:秒" 表記にする(例 " 4:00")。
@@ -133,7 +136,35 @@ type Document struct {
 	// 取得元が消費時間を持たない場合に "( 0:00/00:00:00)" が並ぶのを避けるため、
 	// 明示的なフラグにしている(0 秒の手は正当に存在しうるので値からは判定できない)。
 	ShowTime bool
-	Moves    []Move
+	// Comment は初期局面に付くコメント(KIF の `*` 行)。複数行なら "\n" で連結する。
+	// 初手より前に置かれた `*` 行がここに入る(読売のペイロードなら num:0 のコメント)。
+	Comment string
+	Moves   []Move
+	// Start は開始局面の SFEN（完全形）。**空なら手合割の初期局面**（2026-09-16）。
+	//
+	// **途中の局面から始まる棋譜**（撮った中継の 1 局面・詰将棋・次の一手）は
+	// 手合割では表せないので、KIF では**盤面図**として書かれる。読み書きは
+	// `ParseBOD` / `FormatBOD`。
+	//
+	// ⚠️ **手合割と両方を見ないこと。** 開始局面の解決は `StartSFEN()` の 1 か所で、
+	// **これが入っていれば手合割は見ない**（`String` も盤面図を書いて手合割を
+	// 書かない）。両方を並べると、読み手によって別の局面になる。
+	//
+	// ⚠️ **手数は当てにしないこと**（盤面図に手数の欄が無いので必ず 1 になる）。
+	Start string
+}
+
+// Empty はヘッダも指し手も1つも読み取れなかったことを表す。
+//
+// Parse は**指し手が 0 手でもエラーにしない**(対局前の中継棋譜は
+// ヘッダだけで指し手がまだ無い)。そのため「そもそも KIF ではない」の判定は
+// 手数ではなくこちらで行う —— HTML やただの文章を読ませた場合は
+// ヘッダも指し手も取れないので true になる。
+func (d Document) Empty() bool {
+	return len(d.Moves) == 0 &&
+		d.Handicap == "" && d.Event == "" && d.Place == "" &&
+		d.Black == "" && d.White == "" &&
+		d.StartedAt.IsZero() && d.TimeLimit == 0 && d.Countdown == 0
 }
 
 // FormatTimeLimit は持ち時間を KIF のヘッダ表記にする(例 "各8時間", "各25分")。
@@ -169,11 +200,26 @@ func (d Document) String() string {
 	writeHeader("棋戦", d.Event)
 	writeHeader("場所", d.Place)
 
-	handicap := d.Handicap
-	if handicap == "" {
-		handicap = HirateHandicap
+	// ⚠️ **盤面図があるなら手合割は書かない**（2026-09-16）。両方あると、
+	// **読み手によって別の局面になる**（どちらを正とするかは書かれていない）。
+	// ⚠️ **盤面図は先手・後手より前**（KIF の慣例。持駒の行が対になっている）。
+	if d.Start != "" {
+		bod, err := FormatBOD(d.Start)
+		if err == nil {
+			sb.WriteString(bod)
+		} else {
+			// ⚠️ **書けなかったときに黙って手合割へ倒さないこと** ——
+			// **別の局面の棋譜**になる。手合割の行が無い KIF は
+			// 「平手」と読まれるので、**理由をコメントとして残す**。
+			writeComment(&sb, "盤面図を書き出せませんでした: "+err.Error())
+		}
+	} else {
+		handicap := d.Handicap
+		if handicap == "" {
+			handicap = HirateHandicap
+		}
+		writeHeader("手合割", handicap)
 	}
-	writeHeader("手合割", handicap)
 
 	writeHeader("先手", d.Black)
 	writeHeader("後手", d.White)
@@ -185,7 +231,10 @@ func (d Document) String() string {
 	sb.WriteString(MoveColumnHeader)
 	sb.WriteByte('\n')
 
-	// 累計消費時間は対局者ごとに積む(奇数手が先手、偶数手が後手)。
+	// 初期局面のコメントは列ヘッダの直後、初手より前に置く。
+	writeComment(&sb, d.Comment)
+
+	//累計消費時間は対局者ごとに積む(奇数手が先手、偶数手が後手)。
 	var totalBlack, totalWhite time.Duration
 	for _, m := range d.Moves {
 		sb.WriteString(FormatLine(m.Num, m.Name, m.FromX, m.FromY))
@@ -199,6 +248,21 @@ func (d Document) String() string {
 			sb.WriteString(FormatTimes(m.Spend, *total))
 		}
 		sb.WriteByte('\n')
+		// コメントは注釈する手の**直後**に置く。
+		writeComment(&sb, m.Comment)
 	}
 	return sb.String()
+}
+
+// writeComment はコメントを KIF の `*` 行として書き出す(空なら何も書かない)。
+// 複数行のコメントは1行ずつ `*` を付ける。
+func writeComment(sb *strings.Builder, comment string) {
+	if comment == "" {
+		return
+	}
+	for _, line := range strings.Split(normalizeNewlines(comment), "\n") {
+		sb.WriteByte('*')
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
 }
