@@ -209,6 +209,7 @@ KIF 形式（将棋の棋譜テキスト）の組み立て。スクレイピン�
 | `MoveText` | 1 手の表記。`Name`/`FromX`/`FromY` はそのまま `kifu.Move` に入る |
 | `NewDecoder()` / `Decoder.Next(m)` / `DecodeMoves(moves)` | **KIF の指し手 → USI**（`"２二角成"(88)` → `"8h2b+"`）。下記 |
 | `StartSFEN(handicap)` / `Document.StartSFEN()` | **手合割 → 初期局面の SFEN**（`decode.go`）。⚠️ **盤面図（`Document.Start`）があればそちらが勝つ** |
+| `DecodeCSA(start, moves)` | **CSA の指し手 → USI**（`"-2277UM"` → `"2b7g+"`。`csa.go`）。終局表記は KIF の名前で返す。下記 |
 | `FormatBOD(sfen)` / `ParseBOD(lines)` / `HasBOD(text)` | **盤面図**（途中の局面から始まる棋譜。`bod.go`）。下記 |
 
 #### 指し手が 0 手でもエラーにしない
@@ -286,6 +287,35 @@ KIF には**盤面図**という書き方がある。
 - ⚠️ **駒落ちは上手（後手）が初手**なので `StartSFEN` は `w` を返す（`w` + 手数 1 は正当）。
   「左」は上手から見た左＝1 筋側（香落ちが落とすのは 1一。9一 は右香落ち）
 - **JS 側（`web/`）に対応物は無い**（`notation.go` と同じ理由）
+
+### CSA の指し手 → USI（`csa.go`）— **2026-09-26**
+
+CSA 形式の指し手（`+7776FU` / `-8822UM` / `+0044KE`、終局 `%TORYO`）を USI にする。
+利用側は `kicho`（**将棋DB2（shogidb2.com）の棋譜は指し手が CSA で届く**）。
+KIF にするときは `DecodeCSA` → `FormatMoves`（日本語表記）の順に通す。
+
+```go
+start, _ := kifu.StartSFEN("平手")
+moves, end, err := kifu.DecodeCSA(start, []string{"+7776FU", "-3334FU", "+8822UM", "%TORYO"})
+// moves == ["7g7f", "3c3d", "8h2b+"], end == "投了"
+```
+
+- ⚠️ **`decode.go`（KIF → USI）と違って盤が要る。** CSA は**移動後の駒種**を書くので
+  （`-2277UM` は「角が 7七 へ動いて馬になった」）、**成ったのか元から成駒だったのか**は
+  移動元の駒を見ないと分からない。元が生駒で CSA が成駒のときだけ USI に `+` を付ける
+  （既に馬の駒が動く `+2211UM` には付けない）。盤は `board.go` のものを使う
+- ⚠️ **符号（`+`/`-`）と手番が合わなければエラー。** 1 手抜けた棋譜を黙って通すと、
+  以後の手が全部反対側の手として読まれる
+- ⚠️ **終局表記は `TerminalMarkers` にある名前へ写して `end` に返し、そこで止める**
+  （`%TORYO`→投了・`%CHUDAN`→中断・`%SENNICHITE`→千日手・`%JISHOGI`→持将棋・
+  `%TSUMI`→詰み・`%TIME_UP`→切れ負け・`%ILLEGAL_MOVE`→反則負け・`%KACHI`→入玉勝ち）。
+  **知らない `%` はエラー**（読み飛ばすと終局した棋譜が対局中に見える）
+- ⚠️ **`%+ILLEGAL_ACTION` / `%-ILLEGAL_ACTION` は入れていない。** 符号が反則した側を
+  表すので、手番を見て書き分けないと勝敗が逆になる。要るようになったらそのときに
+- 時間の行（`T12`）と空行は読み飛ばす。エラーの手数は**指し手だけを数えた**手数
+- ⚠️ **エラーでもそこまでの手は返す**（`DecodeMoves` と同じ流儀）
+- **合法性は見ない**（`decode.go` と同じ）。見るのは「移動元に手番側の、同じ種類の駒が居るか」まで
+- **JS 側（`web/`）に対応物は無い**（CSA を読むのは Go 側だけ。揃える対象外）
 
 ### USI の手 → 日本語表記（`notation.go` / `board.go`）
 
