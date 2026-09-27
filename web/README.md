@@ -186,7 +186,7 @@ shogi-board { font-feature-settings: "ss01"; }   /* 先後まとめて玉 */
 ⚠️ **stylistic set が効くのはブラウザの HTML/SVG だけ。** Canvas 2D には feature を渡す口が無く、
 Go 側の `x/image/font` は GSUB を解釈しない。**そこで玉・左馬が要るようになったら**、
 フォントには字も同梱してあるので `玉` (U+7389) / **U+E000**(左馬。私用領域)を直接描く
-(`core/shogifont/AGENTS.md` の「異体字と反転字」を参照)。JS 側に対応表は置いていない。
+(`core/shogifont/shogifont.go` の `altPieces` / `mirroredPieces` を参照)。JS 側に対応表は置いていない。
 
 ## デモの確認
 
@@ -270,9 +270,7 @@ SIL Open Font License, Version 1.1  —  http://scripts.sil.org/OFL
 
 ## 今後
 
-- suteme の `applyFromSFEN`/`buildSFEN`、`core/board.html` の `parseRow` などフロントに散在する
-  SFEN 処理を `sfen.js`/`usi.js` へ寄せて重複を解消する。
 - kicho の変換部は `kifu.js` として抽出済み(読売竜王戦ペイロード → KIF)。CSA ⇔ USI は
   `csa.js` に実装済み。**KI2 / 漢字表記 → USI は合法手生成(曖昧性解決)が必要で未実装**
   (この将棋ロジックは Go の engine 側にある。必要なら engine 経由で解決する)。
-- 持ち駒・対局状態の表示コンポーネント(`<shogi-hand>` 等)を追加する。
+- 対局状態の表示コンポーネントを追加する（持ち駒は `<shogi-hand>` として追加済み）。
