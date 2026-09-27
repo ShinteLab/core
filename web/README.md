@@ -186,7 +186,7 @@ shogi-board { font-feature-settings: "ss01"; }   /* 先後まとめて玉 */
 ⚠️ **stylistic set が効くのはブラウザの HTML/SVG だけ。** Canvas 2D には feature を渡す口が無く、
 Go 側の `x/image/font` は GSUB を解釈しない。**そこで玉・左馬が要るようになったら**、
 フォントには字も同梱してあるので `玉` (U+7389) / **U+E000**(左馬。私用領域)を直接描く
-(`core/CLAUDE.md` の「異体字と反転字」を参照)。JS 側に対応表は置いていない。
+(`core/AGENTS.md` の「異体字と反転字」を参照)。JS 側に対応表は置いていない。
 
 ## デモの確認
 

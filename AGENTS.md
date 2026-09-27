@@ -1,9 +1,9 @@
-# CLAUDE.md
+# AGENTS.md
 
 shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様（SFEN / USI / KIF）と、
 盤表示のためのフォント・フロントエンド資産を集約する。独立した Go モジュール
 `github.com/ShinteLab/core`（依存は `golang.org/x/image` のみ。他プロジェクトを参照しない）。
-プロジェクト横断の方針は親ディレクトリの `CLAUDE.md` を参照。
+プロジェクト横断の方針は親ディレクトリの `AGENTS.md` を参照。
 
 ## 構成
 
@@ -38,7 +38,7 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 
 ### Go と JS の 2 ソース
 
-同じ仕様を Go (`sfen`/`usi`/`kifu`) と JS (`web/sfen.js`/`web/usi.js`/`web/kifu.js`) の
+同じ仕様を Go (`sfen`/`usi`/`kifu`) と JS (`web/sfen.js`/`web/usi.js`/`web/kifu.js`/`web/csa.js`) の
 2 つで持っている（バックエンドは Go、フロントは TS/JS のため）。**片方だけ直さない。**
 挙動は `web/test.mjs`（`node test.mjs`）と Go 側テストのゴールデンで揃える。
 
@@ -118,6 +118,7 @@ engine の内部座標 (x,y in 1..9) とは別物。混同しないこと。
 | `Info` / `ParseInfo(line)` | `info` 行。**書かれなかった項目は `Has*` で区別する**（`score cp 0` は互角という情報で、score が無い行とは意味が違う） |
 | `Option` / `ParseOption(line)` | `usi` 応答の `option` 行。**名前も既定値も空白を含みうる**ので、位置ではなく語（`name`/`type`/`default`/`min`/`max`/`var`）で区切って読む。`default <empty>` は空文字に直す |
 | `ParseBestmove(line)` | `bestmove` 行（`resign` / `win` もそのまま `move` に入る。解釈は呼び出し側） |
+| `Checkmate` / `ParseCheckmate(line)` | `checkmate` 行（`go mate` の答え）。種類は `CheckmateFound` / `None` / `Timeout` / `NotImplemented`。**手順の無い `checkmate` は「詰みあり・手順 0 手」**（下記 usi/client） |
 
 - **知らないトークンは読み飛ばす。** エンジンごとに独自の項目が付くので、
   未知の語で行ごと捨てると**そのエンジンの info が全部読めなくなる**
@@ -315,7 +316,10 @@ moves, end, err := kifu.DecodeCSA(start, []string{"+7776FU", "-3334FU", "+8822UM
 - 時間の行（`T12`）と空行は読み飛ばす。エラーの手数は**指し手だけを数えた**手数
 - ⚠️ **エラーでもそこまでの手は返す**（`DecodeMoves` と同じ流儀）
 - **合法性は見ない**（`decode.go` と同じ）。見るのは「移動元に手番側の、同じ種類の駒が居るか」まで
-- **JS 側（`web/`）に対応物は無い**（CSA を読むのは Go 側だけ。揃える対象外）
+- **JS 側には `web/csa.js`（`csaToUsi` / `usiToCsa`）がある**（`DecodeCSA` より前からある）。
+  あちらは **1 手ずつ・盤（grid）は呼び出し側が持つ**形で、終局表記・手番の照合・
+  エラーの手数は持たない。**成ったかどうかの判定（元が生駒で CSA が成駒のときだけ `+`）は
+  両方で同じにしてあるので、片方だけ直さないこと**（`web/test.mjs` の `csa <-> usi`）
 
 ### USI の手 → 日本語表記（`notation.go` / `board.go`）
 
