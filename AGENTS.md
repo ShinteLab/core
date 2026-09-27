@@ -21,15 +21,16 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 
 ## 作業の前に読む資料
 
-パッケージごとの詳細（API 表・「崩さないこと」・過去に踏んだ不具合）は各 README にある。
+パッケージごとの詳細（API 表・「崩さないこと」・過去に踏んだ不具合）は各パッケージの `AGENTS.md` にある
+（入れ子の `AGENTS.md` を自動で読まないエージェントのために、ここに索引を置く）。
 **そのパッケージを触る前に必ず読むこと。** ここには全体に効く方針だけを書く。
 
 | 触るもの | 読む資料 | 主な中身 |
 |---|---|---|
-| `sfen/` | `sfen/README.md` | 座標の取り方（rank/file は 0..8）、盤面の検証（`Inspect`・駒数上限・二歩） |
-| `usi/`・`usi/client/` | `usi/README.md` | 行の読み取りの流儀、**エンジンとのやり取りで崩してはいけない手順**（option・`usinewgame`・`go infinite`/`go mate`・`drain`・`stop`） |
-| `kifu/` | `kifu/README.md` | KIF の読み書き、盤面図（BOD）、KIF/CSA → USI、USI → 日本語表記（修飾の判定） |
-| `shogifont/`・root の CLI | `shogifont/README.md` | **配ってよいフォントの判断基準**、異体字（玉・左馬）、GSUB、検証手順、焼き直し |
+| `sfen/` | `sfen/AGENTS.md` | 座標の取り方（rank/file は 0..8）、盤面の検証（`Inspect`・駒数上限・二歩） |
+| `usi/`・`usi/client/` | `usi/AGENTS.md` | 行の読み取りの流儀、**エンジンとのやり取りで崩してはいけない手順**（option・`usinewgame`・`go infinite`/`go mate`・`drain`・`stop`） |
+| `kifu/` | `kifu/AGENTS.md` | KIF の読み書き、盤面図（BOD）、KIF/CSA → USI、USI → 日本語表記（修飾の判定） |
+| `shogifont/`・root の CLI | `shogifont/AGENTS.md` | **配ってよいフォントの判断基準**、異体字（玉・左馬）、GSUB、検証手順、焼き直し |
 | `web/` | `web/README.md` | `<shogi-board>` の属性と CSS、フォントの焼き直し手順 |
 
 ## 最重要の設計方針
@@ -56,12 +57,12 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 挙動は `web/test.mjs`（`node test.mjs`）と Go 側テストのゴールデンで揃える。
 
 - 片側にしか無い機能もある（盤面検証・USI のプロトコル・盤面図・日本語表記は Go だけ）。
-  どれが対象外かは各パッケージの README に書いてある
+  どれが対象外かは各パッケージの `AGENTS.md` に書いてある
 - ブラウザで要るようになったら、そのときに JS へ足してゴールデンを揃える
 
 ### 段階的に劣化させる／黙って別物に倒さない
 
-core の読み取り系に共通する流儀（詳細は各 README）。
+core の読み取り系に共通する流儀（詳細は各パッケージの `AGENTS.md`）。
 
 - **読めない手が出ても、そこまでの結果は返す**（KIF/CSA → USI、読み筋の日本語表記）
 - **知らないトークン・方言は読み飛ばす**（USI の `info`、KIF の未知の行）
