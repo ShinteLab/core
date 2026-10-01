@@ -86,6 +86,14 @@ const STYLE = `
      当てた指定がそのままシャドウ内の text.piece まで届く。ここで既定値を
      書いてしまうと、外から当てた指定が**内側の宣言に負けて効かなくなる。**
        shogi-board { font-feature-settings: "ss01"; }   ← これで玉になる */
+  /* 盤の色の差し替え口（2026-10-02）。盤面（木地）と、枠・罫線・星の色。
+       shogi-board { --shogi-board-color: #e8c27a; --shogi-line-color: #3b2a14; }
+     ⚠️ **SVG の属性（fill / stroke）には既定の色を書いたまま**にしてあり、
+     ここの CSS が上書きする（CSS のプロパティは属性に勝つ）。
+     ⚠️ **枠と罫線と星は 1 つの値**（別々に変えたい用途がまだ無い）。 */
+  rect.board { fill: var(--shogi-board-color, #f3c877); stroke: var(--shogi-line-color, #5a3b1a); }
+  line.grid { stroke: var(--shogi-line-color, #5a3b1a); }
+  circle.star { fill: var(--shogi-line-color, #5a3b1a); }
   text.coord {
     font-family: sans-serif;
     font-size: 16px;
@@ -187,7 +195,7 @@ export class ShogiBoardElement extends HTMLElement {
 
     // 盤(木目)と枠線
     svg.appendChild(svgEl("rect", {
-      x: MARGIN, y: MARGIN, width: BOARD, height: BOARD,
+      class: "board", x: MARGIN, y: MARGIN, width: BOARD, height: BOARD,
       fill: "#f3c877", stroke: "#5a3b1a", "stroke-width": 3,
     }));
 
@@ -203,12 +211,12 @@ export class ShogiBoardElement extends HTMLElement {
 
     for (let i = 1; i < N; i++) {
       const p = MARGIN + i * CELL;
-      svg.appendChild(svgEl("line", { x1: p, y1: MARGIN, x2: p, y2: MARGIN + BOARD, stroke: "#5a3b1a", "stroke-width": 1 }));
-      svg.appendChild(svgEl("line", { x1: MARGIN, y1: p, x2: MARGIN + BOARD, y2: p, stroke: "#5a3b1a", "stroke-width": 1 }));
+      svg.appendChild(svgEl("line", { class: "grid", x1: p, y1: MARGIN, x2: p, y2: MARGIN + BOARD, stroke: "#5a3b1a", "stroke-width": 1 }));
+      svg.appendChild(svgEl("line", { class: "grid", x1: MARGIN, y1: p, x2: MARGIN + BOARD, y2: p, stroke: "#5a3b1a", "stroke-width": 1 }));
     }
     // 星
     for (const gx of [3, 6]) for (const gy of [3, 6]) {
-      svg.appendChild(svgEl("circle", { cx: MARGIN + gx * CELL, cy: MARGIN + gy * CELL, r: 4, fill: "#5a3b1a" }));
+      svg.appendChild(svgEl("circle", { class: "star", cx: MARGIN + gx * CELL, cy: MARGIN + gy * CELL, r: 4, fill: "#5a3b1a" }));
     }
 
     // 座標(上辺=筋, 右辺=段)。flip 時は反転。
