@@ -9,6 +9,7 @@ USI 仕様（`usi`）と、USI エンジンと話すクライアント側（`usi
 | `protocol.go` | エンジンが返す行の読み取り（`ParseInfo` / `ParseOption` / `ParseBestmove` / `ParseCheckmate`） |
 | `client/client.go` | セッション（`Open` / `NewGame` / `Analyze` / `Mate` / `SetOption` / `Close`） |
 | `client/exec.go` | 実行ファイルの起動（`Exec`） |
+| `client/exec_windows.go` / `exec_other.go` | 起動時にコンソール窓を出さない（`hideConsole`。Windows 以外は何もしない） |
 
 ## usi で崩さないこと
 
@@ -35,4 +36,5 @@ USI 仕様（`usi`）と、USI エンジンと話すクライアント側（`usi
 - **`stop` のあとは `bestmove` を待つ。`BestmoveGrace` を 0 にしない**
 - **送信は ctx で切れるようにする**（`sendCtx`。標準入力を読まないエンジンで固まらない）
 - **標準エラーは捨てる**（`Exec`。読まずに繋ぐとエンジンが止まる）。作業ディレクトリは実行ファイルの場所
+- **Windows ではエンジンのコンソール窓を出さない**（`hideConsole`。GUI アプリから起こすと窓が出る。`wails3 dev` では出ないので気づけない）
 - **テストは実エンジンを要求しない**（`io.Pipe` 越しの偽エンジン）

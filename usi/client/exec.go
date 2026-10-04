@@ -19,6 +19,8 @@ import (
 func Exec(ctx context.Context, path string, args ...string) (Transport, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = filepath.Dir(path)
+	// ⚠️ **Windows ではコンソール窓を出さない。** GUI アプリから起こすと窓が出る（`hideConsole`）。
+	hideConsole(cmd)
 
 	out, err := cmd.StdoutPipe()
 	if err != nil {
