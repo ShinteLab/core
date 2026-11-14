@@ -11,6 +11,7 @@ KIF 形式（将棋の棋譜テキスト）の読み書きと、棋譜まわり�
 | `bod.go` | 盤面図（途中の局面から始まる棋譜。`FormatBOD` / `ParseBOD` / `HasBOD`） |
 | `decode.go` | KIF の指し手 → USI（`Decoder` / `DecodeMoves`）と手合割 → SFEN（`StartSFEN`）。**盤は要らない** |
 | `csa.go` | CSA の指し手 → USI（`DecodeCSA`）。**盤が要る**（成ったのか元から成駒か） |
+| `csaparse.go` | CSA の棋譜ファイル → `Document`（`ParseCSA`）と見分け（`IsCSA`）。**KIF と同じ `Document` にする**ので、使う側は KIF と同じ経路で読め、`String()` で KIF に書き出せる |
 | `notation.go` / `board.go` | USI の手 → 日本語表記（`NewNotation` / `FormatMoves`）。**盤全体が要る**ので `usi` ではなくここ |
 
 ## 全体に効くこと
@@ -36,6 +37,10 @@ KIF 形式（将棋の棋譜テキスト）の読み書きと、棋譜まわり�
 - **"不成" を先に見る。** 末尾の "成" は必ず「成った」
 - **駒落ちは上手（後手）が初手**なので `StartSFEN` は `w`
 - **CSA の `%+ILLEGAL_ACTION` / `%-ILLEGAL_ACTION` は入れていない**（勝敗の向きを手番で書き分ける必要がある）
+- **`ParseCSA` は CSA を KIF の `Document` に寄せる**（指し手名は `Notation` で付ける）。
+  開始局面が手合割の初期局面と同じなら `Handicap`、違えば `Start`（盤面図）。
+  **開始局面が読めなければエラー**（平手に倒さない）。**指し手の途中で止まったら、
+  そこまでの手と `ErrCSAMoves`**。読むのは最初の 1 局だけ（`/` の後は読まない）
 - **日本語表記は状態を持つ**（読み筋 1 本につき 1 つ）。**最初の 1 手は「同」にしない**。
   **打ちには必ず「打」**（`FormatLine` が `(00)` を決めるのに使う）。左右は指した側の視点で、
   修飾は**向きの値で比べる**（ラベルで比べない）

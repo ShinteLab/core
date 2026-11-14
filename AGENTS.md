@@ -29,7 +29,7 @@ shinte の**共通基盤**。全プロジェクトが参照する将棋の仕様
 |---|---|---|
 | `sfen/` | `sfen/AGENTS.md` | 座標の取り方（rank/file は 0..8）、盤面の検証（`Inspect`・駒数上限・二歩） |
 | `usi/`・`usi/client/` | `usi/AGENTS.md` | 行の読み取りの流儀、**エンジンとのやり取りで崩してはいけない手順**（option・`usinewgame`・`go infinite`/`go mate`・`drain`・`stop`） |
-| `kifu/` | `kifu/AGENTS.md` | KIF の読み書き、盤面図（BOD）、KIF/CSA → USI、USI → 日本語表記（修飾の判定） |
+| `kifu/` | `kifu/AGENTS.md` | KIF の読み書き、盤面図（BOD）、KIF/CSA → USI、CSA の棋譜 → KIF の `Document`、USI → 日本語表記（修飾の判定） |
 | `shogifont/`・root の CLI | `shogifont/AGENTS.md` | **配ってよいフォントの判断基準**、異体字（玉・左馬）、GSUB、検証手順、焼き直し |
 | `web/` | `web/README.md` | `<shogi-board>` の属性と CSS、フォントの焼き直し手順 |
 
