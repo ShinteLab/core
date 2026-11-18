@@ -214,7 +214,12 @@ func (d *KI2Decoder) resolve(text string) (usi.Move, error) {
 	if len(cands) == 0 {
 		// 盤上から行ける駒が無い。KI2 は紛れないとき「打」を省くので打ちとして読む。
 		if m.mods == "" && !m.promote && !m.notPromote {
-			return drop()
+			mv, err := drop()
+			if err != nil {
+				// 打ちとして読めなかった理由だけを出すと「盤上から来られない」ことが伝わらない。
+				return usi.Move{}, fmt.Errorf("そのマスへ行ける駒がなく、打ちとしても読めません（%v）", err)
+			}
+			return mv, nil
 		}
 		return usi.Move{}, errors.New("そのマスへ行ける駒がありません")
 	}
