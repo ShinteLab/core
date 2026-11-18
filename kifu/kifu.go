@@ -184,6 +184,37 @@ func FormatTimeLimit(d time.Duration) string {
 // "先手：" → "後手：" の順に出力し、続けて指し手の列ヘッダと各手を並べる。
 func (d Document) String() string {
 	var sb strings.Builder
+	d.writeHeaders(&sb)
+
+	sb.WriteString(MoveColumnHeader)
+	sb.WriteByte('\n')
+
+	// 初期局面のコメントは列ヘッダの直後、初手より前に置く。
+	writeComment(&sb, d.Comment)
+
+	//累計消費時間は対局者ごとに積む(奇数手が先手、偶数手が後手)。
+	var totalBlack, totalWhite time.Duration
+	for _, m := range d.Moves {
+		sb.WriteString(FormatLine(m.Num, m.Name, m.FromX, m.FromY))
+		if d.ShowTime {
+			total := &totalWhite
+			if m.Num%2 == 1 {
+				total = &totalBlack
+			}
+			*total += m.Spend
+			sb.WriteString("   ")
+			sb.WriteString(FormatTimes(m.Spend, *total))
+		}
+		sb.WriteByte('\n')
+		// コメントは注釈する手の**直後**に置く。
+		writeComment(&sb, m.Comment)
+	}
+	return sb.String()
+}
+
+// writeHeaders はヘッダ（開始日時〜秒読み。盤面図を含む）を書く。
+// KIF（Document.String）と KI2（KI2Document.String）で共有する。
+func (d Document) writeHeaders(sb *strings.Builder) {
 	writeHeader := func(key, value string) {
 		if value == "" {
 			return
@@ -211,7 +242,7 @@ func (d Document) String() string {
 			// ⚠️ **書けなかったときに黙って手合割へ倒さないこと** ——
 			// **別の局面の棋譜**になる。手合割の行が無い KIF は
 			// 「平手」と読まれるので、**理由をコメントとして残す**。
-			writeComment(&sb, "盤面図を書き出せませんでした: "+err.Error())
+			writeComment(sb, "盤面図を書き出せませんでした: "+err.Error())
 		}
 	} else {
 		handicap := d.Handicap
@@ -227,31 +258,6 @@ func (d Document) String() string {
 	if d.Countdown > 0 {
 		writeHeader("秒読み", fmt.Sprintf("%d秒", int(d.Countdown/time.Second)))
 	}
-
-	sb.WriteString(MoveColumnHeader)
-	sb.WriteByte('\n')
-
-	// 初期局面のコメントは列ヘッダの直後、初手より前に置く。
-	writeComment(&sb, d.Comment)
-
-	//累計消費時間は対局者ごとに積む(奇数手が先手、偶数手が後手)。
-	var totalBlack, totalWhite time.Duration
-	for _, m := range d.Moves {
-		sb.WriteString(FormatLine(m.Num, m.Name, m.FromX, m.FromY))
-		if d.ShowTime {
-			total := &totalWhite
-			if m.Num%2 == 1 {
-				total = &totalBlack
-			}
-			*total += m.Spend
-			sb.WriteString("   ")
-			sb.WriteString(FormatTimes(m.Spend, *total))
-		}
-		sb.WriteByte('\n')
-		// コメントは注釈する手の**直後**に置く。
-		writeComment(&sb, m.Comment)
-	}
-	return sb.String()
 }
 
 // writeComment はコメントを KIF の `*` 行として書き出す(空なら何も書かない)。
